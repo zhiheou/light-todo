@@ -1,0 +1,141 @@
+import { useEffect, useState } from "react";
+import { ShieldCheck, UserRound, X } from "lucide-react";
+
+interface AccountDialogProps {
+  onClose: () => void;
+  onLogin: (username: string, password: string) => Promise<void>;
+  onRegister: (username: string, password: string) => Promise<void>;
+}
+
+export default function AccountDialog({ onClose, onLogin, onRegister }: AccountDialogProps) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit() {
+    if (!username.trim() || !password) {
+      setError("请填写用户名和密码");
+      return;
+    }
+    if (mode === "register" && password !== confirm) {
+      setError("两次输入的密码不一致");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (mode === "login") await onLogin(username.trim(), password);
+      else await onRegister(username.trim(), password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box" role="dialog" aria-label="账号">
+        <div className="modal-head">
+          <h2>
+            <UserRound size={17} />
+            账号
+          </h2>
+          <button type="button" className="icon-button" aria-label="关闭" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="segmented account-tabs">
+          <button
+            type="button"
+            className={mode === "login" ? "active" : ""}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
+          >
+            登录
+          </button>
+          <button
+            type="button"
+            className={mode === "register" ? "active" : ""}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
+          >
+            注册
+          </button>
+        </div>
+
+        <div className="field account-field">
+          <label htmlFor="account-username">用户名</label>
+          <input
+            id="account-username"
+            autoFocus
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="3-32 个字符"
+          />
+        </div>
+
+        <div className="field account-field">
+          <label htmlFor="account-password">密码</label>
+          <input
+            id="account-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder={mode === "register" ? "至少 6 位" : "密码"}
+          />
+        </div>
+
+        {mode === "register" && (
+          <div className="field account-field">
+            <label htmlFor="account-confirm">确认密码</label>
+            <input
+              id="account-confirm"
+              type="password"
+              value={confirm}
+              onChange={(event) => setConfirm(event.target.value)}
+              placeholder="再次输入密码"
+            />
+          </div>
+        )}
+
+        <div className="account-note">
+          <ShieldCheck size={14} />
+          数据使用账号密码端到端加密，服务器只保存密文；忘记密码将无法找回数据。
+        </div>
+
+        {error && <div className="sync-status error">{error}</div>}
+
+        <div className="modal-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={busy}
+            onClick={() => void submit()}
+          >
+            {busy ? "处理中..." : mode === "login" ? "登录" : "注册并同步"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

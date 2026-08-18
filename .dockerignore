@@ -1,0 +1,7 @@
+node_modules
+dist
+data
+src-tauri
+work
+.git
+*.log

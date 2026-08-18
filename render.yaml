@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: light-todo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 1450
+      - key: DATABASE_URL
+        sync: false

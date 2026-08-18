@@ -1,0 +1,13 @@
+services:
+  light-todo:
+    build: .
+    ports:
+      - "1450:1450"
+    environment:
+      - PORT=1450
+    volumes:
+      - light-todo-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  light-todo-data:
