@@ -1,18 +1,11 @@
-import type { Mode, Task, ViewFilter, SortMode } from "../types";
+import type { Mode, RepeatFreq, RepeatRule, Task, ViewFilter, SortMode } from "../types";
+import { nextOccurrence, toDateString } from "./repeat";
 
 const WORK_KEY = "lighttodo:work:v1";
 const PERSONAL_KEY = "lighttodo:personal:v1";
 
 function keyFor(mode: Mode): string {
   return mode === "work" ? WORK_KEY : PERSONAL_KEY;
-}
-
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-function toDateString(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function makeTask(partial: Partial<Task> = {}): Task {
@@ -87,7 +80,7 @@ export function loadTasks(mode: Mode, now = new Date()): Task[] {
   }
   try {
     const parsed = JSON.parse(raw) as Task[];
-    return Array.isArray(parsed) ? parsed : seedTasks(mode, now);
+    return normalizeTasks(parsed);
   } catch {
     return seedTasks(mode, now);
   }
@@ -102,6 +95,98 @@ export function legacyPersonalTasks(): Task[] | null {
   } catch {
     return null;
   }
+}
+
+const REPEAT_FREQS: RepeatFreq[] = ["daily", "weekday", "weekly", "monthly", "interval"];
+
+// 归一化单条任务：兜底脏数据、校验 repeat 合法性。所有任务数据入口都要过一遍。
+export function normalizeTask(raw: unknown): Task {
+  const t = (raw && typeof raw === "object" ? raw : {}) as Partial<Task>;
+  const task: Task = {
+    id: typeof t.id === "string" ? t.id : crypto.randomUUID(),
+    title: typeof t.title === "string" ? t.title : "",
+    notes: typeof t.notes === "string" ? t.notes : "",
+    priority: t.priority === 1 || t.priority === 2 || t.priority === 3 || t.priority === 4 ? t.priority : 3,
+    dueDate: typeof t.dueDate === "string" ? t.dueDate : "",
+    dueTime: typeof t.dueTime === "string" ? t.dueTime : "",
+    remindAt: typeof t.remindAt === "string" ? t.remindAt : "",
+    completed: Boolean(t.completed),
+    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+    updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now(),
+  };
+  const r = t.repeat;
+  if (r && typeof r === "object" && REPEAT_FREQS.includes(r.freq)) {
+    const rule: RepeatRule = {
+      freq: r.freq,
+      interval: typeof r.interval === "number" && r.interval >= 1 ? Math.floor(r.interval) : 1,
+    };
+    if (typeof r.weekday === "number") {
+      const wd = Math.floor(r.weekday);
+      if (wd >= 0 && wd <= 6) rule.weekday = wd;
+    }
+    if (typeof r.dayOfMonth === "number") {
+      const dm = Math.floor(r.dayOfMonth);
+      if (dm >= 1 && dm <= 31) rule.dayOfMonth = dm;
+    }
+    task.repeat = rule;
+  }
+  task.memoId = typeof t.memoId === "string" ? t.memoId : undefined;
+  return task;
+}
+
+export function normalizeTasks(list: unknown[]): Task[] {
+  return Array.isArray(list) ? list.map(normalizeTask) : [];
+}
+
+// 生成循环任务的下一实例。只在"未完成→完成"时调用。
+// 规则：dueDate 按规则前进到严格晚于今天；提醒偏移沿用旧实例"截止-提醒"间隔（无则默认提前10分钟）。
+export function nextTaskInstance(task: Task, now: Date): Task | null {
+  if (!task.repeat) return null;
+  const anchor = task.dueDate ? new Date(`${task.dueDate}T00:00:00`) : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const due = nextOccurrence(task.repeat, anchor, now);
+  const dueDate = toDateString(due);
+
+  // 提醒偏移：沿用旧实例"截止 - 提醒"间隔；非法/无提醒时默认提前 10 分钟
+  let lead = 10 * 60 * 1000;
+  if (task.remindAt && task.dueDate) {
+    const oldDue = new Date(`${task.dueDate}T${task.dueTime || "09:00"}:00`);
+    const diff = oldDue.getTime() - new Date(task.remindAt).getTime();
+    if (diff > 0) lead = diff;
+  }
+  let remindAt = "";
+  if (task.dueTime) {
+    const at = new Date(`${dueDate}T${task.dueTime}:00`);
+    remindAt = new Date(at.getTime() - lead).toISOString();
+  }
+
+  return makeTask({
+    title: task.title,
+    notes: task.notes,
+    priority: task.priority,
+    dueDate,
+    dueTime: task.dueTime,
+    remindAt,
+    repeat: task.repeat,
+    memoId: task.memoId,
+    completed: false,
+  });
+}
+
+// 勾选完成切换。仅在 未完成→完成 方向为循环任务生成下一实例（spawned 插入列表顶部）。
+export function toggleCompleted(
+  tasks: Task[],
+  id: string,
+  now: Date,
+): { tasks: Task[]; spawned: Task | null } {
+  let spawned: Task | null = null;
+  const next = tasks.map((task) => {
+    if (task.id !== id) return task;
+    const wasDone = task.completed;
+    if (!wasDone && task.repeat) spawned = nextTaskInstance(task, now);
+    return { ...task, completed: !wasDone, updatedAt: now.getTime() };
+  });
+  if (spawned) next.unshift(spawned);
+  return { tasks: next, spawned };
 }
 
 export function saveTasks(mode: Mode, tasks: Task[]): void {

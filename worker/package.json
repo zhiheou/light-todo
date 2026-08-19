@@ -1,0 +1,22 @@
+{
+  "name": "light-todo-worker",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "cd .. && npm run build",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply light-todo --local",
+    "migrate:remote": "wrangler d1 migrations apply light-todo --remote",
+    "seed:local": "wrangler d1 execute light-todo --local --file=seed.sql",
+    "seed:remote": "wrangler d1 execute light-todo --remote --file=seed.sql",
+    "dump-seed": "node scripts/dump-seed.mjs"
+  },
+  "dependencies": {
+    "scrypt-js": "^3.0.1"
+  },
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}

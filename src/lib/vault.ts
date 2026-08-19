@@ -1,3 +1,7 @@
+// DEPRECATED：账号体系下个人空间数据权威源改为账号 workspace，
+// 不再使用本文件的 PIN 加密 vault 存储。文件保留仅用于理解旧数据结构；
+// App 已不再调用任何导出。见 src/lib/personalLock.ts（本机访问码，仅锁 UI）。
+
 import type { VaultData } from "../types";
 import { legacyPersonalTasks, seedTasks } from "./tasks";
 import { legacyPersonalMemos, seedMemos } from "./memos";

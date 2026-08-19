@@ -15,6 +15,33 @@ export function makeMemo(partial: Partial<Memo> = {}): Memo {
   };
 }
 
+// 归一化单条备忘：兜底脏数据、校验 tags。所有备忘数据入口都过一遍。
+export function normalizeMemo(raw: unknown): Memo {
+  const m = (raw && typeof raw === "object" ? raw : {}) as Partial<Memo>;
+  const tags = Array.isArray(m.tags)
+    ? Array.from(
+        new Set(
+          m.tags
+            .filter((tag): tag is string => typeof tag === "string")
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        ),
+      )
+    : undefined;
+  return {
+    id: typeof m.id === "string" ? m.id : crypto.randomUUID(),
+    text: typeof m.text === "string" ? m.text : "",
+    pinned: Boolean(m.pinned),
+    createdAt: typeof m.createdAt === "number" ? m.createdAt : Date.now(),
+    updatedAt: typeof m.updatedAt === "number" ? m.updatedAt : Date.now(),
+    ...(tags && tags.length > 0 ? { tags } : {}),
+  };
+}
+
+export function normalizeMemos(list: unknown): Memo[] {
+  return Array.isArray(list) ? list.map(normalizeMemo) : [];
+}
+
 export function seedMemos(mode: Mode): Memo[] {
   const base = { pinned: false, createdAt: Date.now(), updatedAt: Date.now() };
   if (mode === "work") {
@@ -40,7 +67,7 @@ export function loadWorkMemos(): Memo[] {
   }
   try {
     const parsed = JSON.parse(raw) as Memo[];
-    return Array.isArray(parsed) ? parsed : [];
+    return normalizeMemos(parsed);
   } catch {
     return [];
   }

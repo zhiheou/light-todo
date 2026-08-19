@@ -4,14 +4,15 @@ import {
   CircleDot,
   Cloud,
   Download,
+  Info,
   ListTodo,
   LockKeyhole,
   LogOut,
   NotebookPen,
   Sparkles,
   Upload,
-  UserRound,
 } from "lucide-react";
+import { useState } from "react";
 import type { Mode, ViewFilter } from "../types";
 
 interface SidebarProps {
@@ -25,7 +26,6 @@ interface SidebarProps {
   onImport: (file: File) => void;
   onSync: () => void;
   accountName: string | null;
-  onOpenAccount: () => void;
   onLogout: () => void;
 }
 
@@ -48,9 +48,10 @@ export default function Sidebar({
   onImport,
   onSync,
   accountName,
-  onOpenAccount,
   onLogout,
 }: SidebarProps) {
+  const [infoOpen, setInfoOpen] = useState(false);
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -86,20 +87,11 @@ export default function Sidebar({
 
       <div className="sidebar-foot">
         <div className="account-row">
-          {accountName ? (
-            <>
-              <span className="account-name">{accountName}</span>
-              <button type="button" className="account-button" onClick={onLogout}>
-                <LogOut size={13} />
-                退出
-              </button>
-            </>
-          ) : (
-            <button type="button" className="account-button" onClick={onOpenAccount}>
-              <UserRound size={14} />
-              登录账号
-            </button>
-          )}
+          <span className="account-name">{accountName ?? ""}</span>
+          <button type="button" className="account-button" onClick={onLogout}>
+            <LogOut size={13} />
+            退出
+          </button>
         </div>
         {mode === "personal" && (
           <button type="button" className="lock-button" onClick={onLock}>
@@ -108,15 +100,25 @@ export default function Sidebar({
           </button>
         )}
         <div className="backup-row">
-          <button type="button" className="backup-button" onClick={onExport}>
+          <button
+            type="button"
+            className="backup-button"
+            title="导出为本地 JSON 备份文件"
+            onClick={onExport}
+          >
             <Download size={13} />
             备份
           </button>
-          <button type="button" className="backup-button" onClick={onSync}>
+          <button
+            type="button"
+            className="backup-button"
+            title="登录账号自动云端同步（也可配置 WebDAV）"
+            onClick={onSync}
+          >
             <Cloud size={13} />
             同步
           </button>
-          <label className="backup-button">
+          <label className="backup-button" title="从备份 JSON 文件导入">
             <Upload size={13} />
             恢复
             <input
@@ -131,7 +133,29 @@ export default function Sidebar({
             />
           </label>
         </div>
-        <span className="local-note">本地加密存储</span>
+        <button
+          type="button"
+          className="local-note"
+          onClick={() => setInfoOpen((open) => !open)}
+          aria-expanded={infoOpen}
+        >
+          <Info size={12} />
+          本地加密存储
+        </button>
+        {infoOpen && (
+          <div className="local-note-panel">
+            <p className="panel-lead">
+              登录账号后，任务和备忘录会自动端到端加密同步到云端——换设备登录即可继续，
+              日常无需手动操作。
+            </p>
+            <ul>
+              <li><b>备份</b>：把全部数据导出为一个文件。换浏览器或换账号前，或想留一份"快照"防止误删时用。</li>
+              <li><b>同步</b>：除内置云端外，可把加密备份手动上传到自己的 WebDAV 网盘（坚果云/群晖），完全自控。</li>
+              <li><b>恢复</b>：从备份文件把数据导回来，适合迁移或找回误删内容。</li>
+            </ul>
+            <p className="panel-tail">简单说：自动同步负责日常；备份/恢复负责迁移和兜底，平时放着不用管。</p>
+          </div>
+        )}
       </div>
     </aside>
   );

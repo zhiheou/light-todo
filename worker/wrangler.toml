@@ -1,0 +1,22 @@
+name = "light-todo"
+main = "src/index.js"
+compatibility_date = "2025-08-01"
+# scrypt-js 自带 setImmediate 降级，纯 Uint8Array，无需 nodejs_compat
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "light-todo"
+database_id = "f8234c90-36d2-46de-b889-e75244e4e9a2"
+migrations_dir = "migrations"
+
+# Workers Paid plan only (free plan hard-caps CPU at 10 ms/request).
+# If legacy scrypt login intermittently hits Error 1102 (exceededCpu), upgrade
+# to the Paid plan and uncomment so scrypt-js verification (~100ms+) never fails:
+# [limits]
+# cpu_ms = 30000

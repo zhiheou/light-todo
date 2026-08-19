@@ -1,6 +1,7 @@
-import { Bell, CheckCircle2, Circle, ListTodo, Pencil, Trash2 } from "lucide-react";
+import { Bell, CheckCircle2, Circle, ListTodo, Pencil, Repeat, Trash2 } from "lucide-react";
 import type { Priority, Task } from "../types";
 import { formatDue, isOverdue } from "../lib/tasks";
+import { describeRepeat, shortRepeatLabel } from "../lib/repeat";
 
 interface TaskListProps {
   tasks: Task[];
@@ -29,6 +30,9 @@ export default function TaskList({
       <div className="empty">
         <ListTodo size={28} />
         <span>暂无任务</span>
+        <span className="empty-hint">
+          试试自然语言：<b>明天10点提交周报</b>、<b>每天8点提醒我打卡</b>、<b>每周一例会</b>
+        </span>
       </div>
     );
   }
@@ -50,6 +54,7 @@ export default function TaskList({
               .filter(Boolean)
               .join(" ")}
             onClick={() => onSelect(task)}
+            onDoubleClick={() => onSelect(task)}
           >
             <button
               type="button"
@@ -64,7 +69,10 @@ export default function TaskList({
             </button>
 
             <div className="task-main">
-              <div className="task-title">{task.title}</div>
+              <div className="task-title-line">
+                <span className="task-title">{task.title}</span>
+                <span className={`priority p${task.priority}`}>{PRIORITY_LABEL[task.priority]}</span>
+              </div>
               <div className="task-meta">
                 {due && (
                   <span className={overdue ? "meta-chip overdue" : "meta-chip"}>
@@ -77,10 +85,17 @@ export default function TaskList({
                     提醒
                   </span>
                 )}
+                {task.repeat && (
+                  <span className="meta-chip repeat-chip" title={describeRepeat(task.repeat)}>
+                    <Repeat size={12} />
+                    {shortRepeatLabel(task.repeat)}
+                  </span>
+                )}
               </div>
+              {task.notes && (
+                <div className="task-note">{task.notes}</div>
+              )}
             </div>
-
-            <span className={`priority p${task.priority}`}>{PRIORITY_LABEL[task.priority]}</span>
 
             <div className="row-actions">
               <button

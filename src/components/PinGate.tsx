@@ -26,8 +26,12 @@ export default function PinGate({ kind, error, onCancel, onSubmit }: PinGateProp
   return (
     <div className="pin-overlay">
       <div className="pin-box">
-        <h2>{kind === "setup" ? "设置访问码" : "输入访问码"}</h2>
-        <p>{kind === "setup" ? "设置 4 至 6 位数字访问码" : "输入访问码"}</p>
+        <h2>{kind === "setup" ? "设置本机访问码" : "输入访问码"}</h2>
+        <p>
+          {kind === "setup"
+            ? "设置 4 至 6 位数字访问码，仅在本机生效（数据加密仍由账号密码负责）"
+            : "输入本机访问码"}
+        </p>
 
         <div className="pin-inputs">
           <input
@@ -69,7 +73,7 @@ export default function PinGate({ kind, error, onCancel, onSubmit }: PinGateProp
             onClick={() => onSubmit(pin)}
           >
             <LockKeyhole size={14} />
-            解锁
+            {kind === "setup" ? "设置" : "解锁"}
           </button>
         </div>
       </div>

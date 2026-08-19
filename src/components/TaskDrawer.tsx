@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
-import type { Priority, Task } from "../types";
+import { ExternalLink, X } from "lucide-react";
+import type { Memo, Priority, RepeatRule, Task } from "../types";
+import { memoTitle } from "../lib/markdown";
 
 interface TaskDrawerProps {
   task: Task;
+  memos: Memo[];
+  onOpenMemo: (id: string) => void;
   onSave: (patch: Partial<Task>) => void;
   onDelete: (task: Task) => void;
   onClose: () => void;
@@ -40,13 +43,22 @@ function todayLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export default function TaskDrawer({ task, onSave, onDelete, onClose }: TaskDrawerProps) {
+export default function TaskDrawer({
+  task,
+  memos,
+  onOpenMemo,
+  onSave,
+  onDelete,
+  onClose,
+}: TaskDrawerProps) {
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes);
   const [priority, setPriority] = useState<Priority>(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate);
   const [dueTime, setDueTime] = useState(task.dueTime);
   const [remindAt, setRemindAt] = useState(isoToLocalInput(task.remindAt));
+  const [repeat, setRepeat] = useState<RepeatRule | null>(task.repeat ?? null);
+  const [memoId, setMemoId] = useState(task.memoId ?? "");
 
   useEffect(() => {
     setTitle(task.title);
@@ -58,6 +70,8 @@ export default function TaskDrawer({ task, onSave, onDelete, onClose }: TaskDraw
       isoToLocalInput(task.remindAt) ||
         isoToLocalInput(defaultRemindAt(task.dueDate, task.dueTime)),
     );
+    setRepeat(task.repeat ?? null);
+    setMemoId(task.memoId ?? "");
   }, [task.id]);
 
   useEffect(() => {
@@ -79,9 +93,15 @@ export default function TaskDrawer({ task, onSave, onDelete, onClose }: TaskDraw
       dueDate: finalDueDate,
       dueTime,
       remindAt: localInputToIso(finalRemindAt),
+      repeat: repeat ?? undefined,
+      memoId: memoId || undefined,
     });
     onClose();
   }
+
+  // 关联备忘选择：按 updatedAt 倒序
+  const memoOptions = [...memos].sort((a, b) => b.updatedAt - a.updatedAt);
+  const linkedMemo = memoId ? memos.find((m) => m.id === memoId) ?? null : null;
 
   return (
     <div className="drawer" role="dialog" aria-label="编辑任务">
@@ -170,6 +190,124 @@ export default function TaskDrawer({ task, onSave, onDelete, onClose }: TaskDraw
           value={remindAt}
           onChange={(event) => setRemindAt(event.target.value)}
         />
+      </div>
+
+      <div className="field">
+        <label htmlFor="task-repeat">重复</label>
+        <select
+          id="task-repeat"
+          value={repeat?.freq ?? "none"}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "none") {
+              setRepeat(null);
+            } else if (value === "weekly") {
+              setRepeat({ freq: "weekly", interval: 1, weekday: task.dueDate ? new Date(`${task.dueDate}T00:00:00`).getDay() : new Date().getDay() });
+            } else if (value === "monthly") {
+              setRepeat({ freq: "monthly", interval: 1, dayOfMonth: task.dueDate ? Number(task.dueDate.split("-")[2]) : new Date().getDate() });
+            } else {
+              setRepeat({ freq: value as "daily" | "weekday" | "interval", interval: 1 });
+            }
+          }}
+        >
+          <option value="none">不循环</option>
+          <option value="daily">每天</option>
+          <option value="weekday">每个工作日</option>
+          <option value="weekly">每周</option>
+          <option value="monthly">每月</option>
+          <option value="interval">每隔 N 天</option>
+        </select>
+      </div>
+
+      {repeat?.freq === "weekly" && (
+        <div className="field">
+          <label>星期</label>
+          <div className="weekday-picker">
+            {["日", "一", "二", "三", "四", "五", "六"].map((label, idx) => (
+              <button
+                key={label}
+                type="button"
+                className={repeat.weekday === idx ? "active" : ""}
+                onClick={() => setRepeat({ ...repeat, weekday: idx })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {repeat?.freq === "monthly" && (
+        <div className="field">
+          <label htmlFor="task-repeat-day">每月的几号</label>
+          <input
+            id="task-repeat-day"
+            type="number"
+            min={1}
+            max={31}
+            value={repeat.dayOfMonth ?? 1}
+            onChange={(event) => {
+              const day = Math.min(31, Math.max(1, Number(event.target.value) || 1));
+              setRepeat({ ...repeat, dayOfMonth: day });
+            }}
+          />
+        </div>
+      )}
+
+      {repeat?.freq === "interval" && (
+        <div className="field">
+          <label htmlFor="task-repeat-interval">每隔几天</label>
+          <input
+            id="task-repeat-interval"
+            type="number"
+            min={1}
+            value={repeat.interval}
+            onChange={(event) => {
+              const n = Math.max(1, Number(event.target.value) || 1);
+              setRepeat({ ...repeat, interval: n });
+            }}
+          />
+        </div>
+      )}
+
+      <div className="field">
+        <label htmlFor="task-memo">关联备忘</label>
+        <select
+          id="task-memo"
+          value={memoId}
+          onChange={(event) => setMemoId(event.target.value)}
+        >
+          <option value="">无</option>
+          {memoOptions.map((memo) => (
+            <option key={memo.id} value={memo.id}>
+              {memoTitle(memo.text)}
+            </option>
+          ))}
+        </select>
+        {linkedMemo && (
+          <div className="linked-memo">
+            <div className="linked-memo-text">
+              <b>{memoTitle(linkedMemo.text)}</b>
+              <span className="linked-memo-snippet">{linkedMemo.text.slice(0, 60)}</span>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              title="打开备忘"
+              onClick={() => onOpenMemo(linkedMemo.id)}
+            >
+              <ExternalLink size={14} />
+            </button>
+          </div>
+        )}
+        {memoId && !linkedMemo && (
+          <div className="linked-memo missing">
+            <span>备忘已删除</span>
+            <button type="button" className="secondary-button small" onClick={() => setMemoId("")}>
+              清除关联
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="drawer-actions">

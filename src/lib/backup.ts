@@ -5,6 +5,10 @@ interface BackupFile {
   version: 1;
   exportedAt: number;
   work: { tasks: Task[]; memos: Memo[] };
+  /**
+   * 旧版个人空间 vault 密文（PIN 派生密钥）。账号体系下个人数据走 workspace，
+   * 不再写入 vault；personalRecord 恒传 null（旧备份的该字段导入时忽略）。
+   */
   personal: { salt: string; iv: string; data: string } | null;
 }
 
