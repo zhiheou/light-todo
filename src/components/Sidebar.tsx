@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  CalendarRange,
   CheckCircle2,
   CircleDot,
   Cloud,
@@ -10,15 +11,17 @@ import {
   LogOut,
   NotebookPen,
   Sparkles,
+  Target,
   Upload,
 } from "lucide-react";
 import { useState } from "react";
-import type { Mode, ViewFilter } from "../types";
+import type { Mode, ThemePrefs, ViewFilter } from "../types";
+import AppearancePanel from "./AppearancePanel";
 
 interface SidebarProps {
   mode: Mode;
   view: ViewFilter;
-  counts: { today: number; all: number; done: number; notes: number; review: number };
+  counts: Record<ViewFilter, number>;
   onSelectView: (view: ViewFilter) => void;
   onToggleMode: () => void;
   onLock: () => void;
@@ -27,10 +30,14 @@ interface SidebarProps {
   onSync: () => void;
   accountName: string | null;
   onLogout: () => void;
+  themePrefs: ThemePrefs;
+  onThemeChange: (patch: Partial<ThemePrefs>) => void;
 }
 
 const NAV_ITEMS: Array<{ key: ViewFilter; label: string; icon: typeof CalendarDays }> = [
   { key: "today", label: "今日", icon: CalendarDays },
+  { key: "calendar", label: "日历", icon: CalendarRange },
+  { key: "goals", label: "目标", icon: Target },
   { key: "review", label: "回顾", icon: Sparkles },
   { key: "all", label: "全部", icon: ListTodo },
   { key: "done", label: "已完成", icon: CheckCircle2 },
@@ -49,6 +56,8 @@ export default function Sidebar({
   onSync,
   accountName,
   onLogout,
+  themePrefs,
+  onThemeChange,
 }: SidebarProps) {
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -133,6 +142,7 @@ export default function Sidebar({
             />
           </label>
         </div>
+        <AppearancePanel prefs={themePrefs} onChange={onThemeChange} />
         <button
           type="button"
           className="local-note"

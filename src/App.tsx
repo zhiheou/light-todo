@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Menu, Plus, Search } from "lucide-react";
 import Sidebar from "./components/Sidebar";
+import MobileTabBar from "./components/MobileTabBar";
 import TaskList from "./components/TaskList";
 import TaskDrawer from "./components/TaskDrawer";
 import MemoList from "./components/MemoList";
 import MemoDrawer from "./components/MemoDrawer";
 import ReviewView from "./components/ReviewView";
+import TodayView from "./components/TodayView";
+import CalendarView from "./components/CalendarView";
+import GoalsView from "./components/GoalsView";
 import PinGate from "./components/PinGate";
 import AddDialog, { type TaskDraft } from "./components/AddDialog";
 import SyncDialog from "./components/SyncDialog";
 import LoginGate from "./components/LoginGate";
-import type { AppData, Memo, Mode, SortMode, Task, ViewFilter } from "./types";
+import type {
+  AppData,
+  Dimension,
+  Goal,
+  Memo,
+  Mode,
+  SortMode,
+  Task,
+  ThemePrefs,
+  TodayMode,
+  ViewFilter,
+} from "./types";
 import {
   filterTasks,
   isCompletedToday,
@@ -24,6 +39,11 @@ import {
   toggleCompleted,
 } from "./lib/tasks";
 import { loadWorkMemos, makeMemo, normalizeMemos, saveWorkMemos } from "./lib/memos";
+import { loadWorkDimensions, saveWorkDimensions } from "./lib/dimensionsLocal";
+import { loadWorkGoals, saveWorkGoals } from "./lib/goalsLocal";
+import { makeDimension, normalizeDimensions } from "./lib/dimensions";
+import { makeGoal, normalizeGoals } from "./lib/goals";
+import { applyTheme, loadThemePrefs, saveThemePrefs } from "./lib/theme";
 import {
   hasPersonalLock,
   savePersonalLock,
@@ -67,10 +87,12 @@ const VIEW_PREFS_KEY = "lighttodo:view-prefs:v1";
 interface ViewPrefs {
   showCompleted: boolean;
   showFullInfo: boolean;
+  /** 今日页展示形态：清单 / 维度 / 时间线 / 日程 */
+  todayMode: TodayMode;
 }
 
 function loadViewPrefs(): ViewPrefs {
-  const defaults: ViewPrefs = { showCompleted: true, showFullInfo: false };
+  const defaults: ViewPrefs = { showCompleted: true, showFullInfo: false, todayMode: "list" };
   try {
     const raw = localStorage.getItem(VIEW_PREFS_KEY);
     if (!raw) return defaults;
@@ -78,6 +100,10 @@ function loadViewPrefs(): ViewPrefs {
     return {
       showCompleted: typeof parsed.showCompleted === "boolean" ? parsed.showCompleted : defaults.showCompleted,
       showFullInfo: typeof parsed.showFullInfo === "boolean" ? parsed.showFullInfo : defaults.showFullInfo,
+      todayMode:
+        parsed.todayMode === "list" || parsed.todayMode === "dimension" || parsed.todayMode === "timeline" || parsed.todayMode === "schedule"
+          ? parsed.todayMode
+          : defaults.todayMode,
     };
   } catch {
     return defaults;
@@ -96,8 +122,13 @@ export default function App() {
   const [mode, setMode] = useState<Mode>("work");
   const [workTasks, setWorkTasks] = useState<Task[]>(() => loadTasks("work"));
   const [workMemos, setWorkMemos] = useState<Memo[]>(() => loadWorkMemos());
+  const [workDimensions, setWorkDimensions] = useState<Dimension[]>(() => loadWorkDimensions());
+  const [workGoals, setWorkGoals] = useState<Goal[]>(() => loadWorkGoals());
   const [personalTasks, setPersonalTasks] = useState<Task[]>([]);
   const [personalMemos, setPersonalMemos] = useState<Memo[]>([]);
+  const [personalDimensions, setPersonalDimensions] = useState<Dimension[]>([]);
+  const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
+  const [themePrefs, setThemePrefs] = useState<ThemePrefs>(() => loadThemePrefs());
   const [pinState, setPinState] = useState<"idle" | "setup" | "enter">("idle");
   const [pinError, setPinError] = useState("");
   const [view, setView] = useState<ViewFilter>("today");
@@ -109,6 +140,8 @@ export default function App() {
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"task" | "memo" | null>(null);
   const [syncOpen, setSyncOpen] = useState(false);
+  /** 移动端抽屉菜单（底部 TabBar「更多」打开） */
+  const [menuOpen, setMenuOpen] = useState(false);
   const [account, setAccount] = useState<{ username: string } | null>(null);
   const [accountKeySalt, setAccountKeySalt] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
@@ -125,9 +158,17 @@ export default function App() {
 
   useEffect(() => saveTasks("work", workTasks), [workTasks]);
   useEffect(() => saveWorkMemos(workMemos), [workMemos]);
+  useEffect(() => saveWorkDimensions(workDimensions), [workDimensions]);
+  useEffect(() => saveWorkGoals(workGoals), [workGoals]);
+  useEffect(() => {
+    applyTheme(themePrefs);
+    saveThemePrefs(themePrefs);
+  }, [themePrefs]);
 
   const currentTasks = mode === "work" ? workTasks : personalTasks;
   const currentMemos = mode === "work" ? workMemos : personalMemos;
+  const currentDimensions = mode === "work" ? workDimensions : personalDimensions;
+  const currentGoals = mode === "work" ? workGoals : personalGoals;
   const currentTasksRef = useRef(currentTasks);
   useEffect(() => {
     currentTasksRef.current = currentTasks;
@@ -356,6 +397,8 @@ export default function App() {
         dueTime: draft.dueTime,
         remindAt: draft.remindAt,
         repeat: draft.repeat ?? undefined,
+        dimensionId: draft.dimensionId,
+        goalId: draft.goalId,
       });
       addTask(task);
       setDialog(null);
@@ -414,8 +457,10 @@ export default function App() {
         const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
         return task.dueDate === dateKey(tomorrow);
       }).length,
+      calendar: 0,
+      goals: currentGoals.length,
     };
-  }, [currentTasks, currentMemos]);
+  }, [currentTasks, currentMemos, currentGoals]);
 
   useEffect(() => saveViewPrefs(viewPrefs), [viewPrefs]);
 
@@ -493,12 +538,18 @@ export default function App() {
 
   const handleSelectView = useCallback((next: ViewFilter) => {
     setView(next);
+    setMenuOpen(false);
     if (next === "notes") setSelectedId(null);
     else setSelectedMemoId(null);
   }, []);
 
   const handleExport = useCallback(() => {
-    const json = exportBackup(workTasks, workMemos, null);
+    const json = exportBackup(workTasks, workMemos, null, {
+      workDimensions,
+      workGoals,
+      personalDimensions,
+      personalGoals,
+    });
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -507,7 +558,7 @@ export default function App() {
     link.click();
     URL.revokeObjectURL(url);
     showToast("备份已导出");
-  }, [workTasks, workMemos, showToast]);
+  }, [workTasks, workMemos, workDimensions, workGoals, personalDimensions, personalGoals, showToast]);
 
   const handleImport = useCallback(
     (file: File) => {
@@ -521,6 +572,10 @@ export default function App() {
         }
         setWorkTasks(normalizeTasks(backup.work.tasks));
         setWorkMemos(normalizeMemos(backup.work.memos));
+        setWorkDimensions(normalizeDimensions(backup.workDimensions || []));
+        setWorkGoals(normalizeGoals(backup.workGoals || []));
+        setPersonalDimensions(normalizeDimensions(backup.personalDimensions || []));
+        setPersonalGoals(normalizeGoals(backup.personalGoals || []));
         // 先锁定再提示，避免「已锁定」toast 覆盖「旧版个人空间需重新录入」提示
         if (mode === "personal") lockPersonal();
         if (backup.personal) {
@@ -537,13 +592,18 @@ export default function App() {
 
   const handleSyncPush = useCallback(
     async (config: SyncConfig, passphrase: string) => {
-      const backup = exportBackup(workTasks, workMemos, null);
+      const backup = exportBackup(workTasks, workMemos, null, {
+        workDimensions,
+        workGoals,
+        personalDimensions,
+        personalGoals,
+      });
       const encrypted = await encryptBackup(backup, passphrase);
       await pushSync(config, encrypted);
       setSyncConfig(config);
       return "已上传到同步服务器";
     },
-    [workTasks, workMemos],
+    [workTasks, workMemos, workDimensions, workGoals, personalDimensions, personalGoals],
   );
 
   const handleSyncPull = useCallback(
@@ -555,6 +615,10 @@ export default function App() {
       if (!backup) throw new Error("同步文件格式无效");
       setWorkTasks(normalizeTasks(backup.work.tasks));
       setWorkMemos(normalizeMemos(backup.work.memos));
+      setWorkDimensions(normalizeDimensions(backup.workDimensions || []));
+      setWorkGoals(normalizeGoals(backup.workGoals || []));
+      setPersonalDimensions(normalizeDimensions(backup.personalDimensions || []));
+      setPersonalGoals(normalizeGoals(backup.personalGoals || []));
       // 先锁定再提示，避免「已锁定」toast 覆盖「旧版个人空间需重新录入」提示
       if (mode === "personal") lockPersonal();
       if (backup.personal) {
@@ -575,9 +639,90 @@ export default function App() {
       workMemos,
       personalTasks,
       personalMemos,
+      workDimensions,
+      workGoals,
+      personalDimensions,
+      personalGoals,
       updatedAt: Date.now(),
     };
-  }, [workTasks, workMemos, personalTasks, personalMemos]);
+  }, [
+    workTasks,
+    workMemos,
+    personalTasks,
+    personalMemos,
+    workDimensions,
+    workGoals,
+    personalDimensions,
+    personalGoals,
+  ]);
+
+  /** 更新维度（按空间） */
+  const updateDimension = useCallback(
+    (id: string, patch: Partial<Dimension>) => {
+      lastLocalEdit.current = Date.now();
+      const apply = (prev: Dimension[]) =>
+        prev.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim));
+      if (mode === "work") setWorkDimensions(apply);
+      else setPersonalDimensions(apply);
+    },
+    [mode],
+  );
+
+  const addDimension = useCallback(
+    (name: string) => {
+      lastLocalEdit.current = Date.now();
+      const dim = makeDimension({
+        name: name.trim() || "新维度",
+        sortOrder: currentDimensions.reduce((max, d) => Math.max(max, d.sortOrder), 0) + 1,
+      });
+      if (mode === "work") setWorkDimensions((prev) => [...prev, dim]);
+      else setPersonalDimensions((prev) => [...prev, dim]);
+    },
+    [mode, currentDimensions],
+  );
+
+  const deleteDimension = useCallback(
+    (id: string) => {
+      lastLocalEdit.current = Date.now();
+      const clearRef = (prev: Task[]) =>
+        prev.map((task) => (task.dimensionId === id ? { ...task, dimensionId: undefined } : task));
+      if (mode === "work") {
+        setWorkDimensions((prev) => prev.filter((d) => d.id !== id));
+        setWorkTasks(clearRef);
+      } else {
+        setPersonalDimensions((prev) => prev.filter((d) => d.id !== id));
+        setPersonalTasks(clearRef);
+      }
+    },
+    [mode],
+  );
+
+  const addGoal = useCallback(
+    (partial: Partial<Goal>) => {
+      lastLocalEdit.current = Date.now();
+      const goal = makeGoal(partial);
+      if (mode === "work") setWorkGoals((prev) => [...prev, goal]);
+      else setPersonalGoals((prev) => [...prev, goal]);
+      return goal.id;
+    },
+    [mode],
+  );
+
+  const deleteGoal = useCallback(
+    (id: string) => {
+      lastLocalEdit.current = Date.now();
+      const clearRef = (prev: Task[]) =>
+        prev.map((task) => (task.goalId === id ? { ...task, goalId: undefined } : task));
+      if (mode === "work") {
+        setWorkGoals((prev) => prev.filter((g) => g.id !== id));
+        setWorkTasks(clearRef);
+      } else {
+        setPersonalGoals((prev) => prev.filter((g) => g.id !== id));
+        setPersonalTasks(clearRef);
+      }
+    },
+    [mode],
+  );
 
   const handleRegister = useCallback(
     async (username: string, password: string) => {
@@ -611,6 +756,10 @@ export default function App() {
         setWorkMemos(normalizeMemos(data.workMemos || []));
         setPersonalTasks(normalizeTasks(data.personalTasks || []));
         setPersonalMemos(normalizeMemos(data.personalMemos || []));
+        setWorkDimensions(normalizeDimensions(data.workDimensions || []));
+        setWorkGoals(normalizeGoals(data.workGoals || []));
+        setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
+        setPersonalGoals(normalizeGoals(data.personalGoals || []));
       } else {
         const payload = await encryptAppData(collectAppData(), password, login.keySalt);
         await saveWorkspace(payload);
@@ -719,6 +868,10 @@ export default function App() {
         setWorkMemos(normalizeMemos(data.workMemos || []));
         setPersonalTasks(normalizeTasks(data.personalTasks || []));
         setPersonalMemos(normalizeMemos(data.personalMemos || []));
+        setWorkDimensions(normalizeDimensions(data.workDimensions || []));
+        setWorkGoals(normalizeGoals(data.workGoals || []));
+        setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
+        setPersonalGoals(normalizeGoals(data.personalGoals || []));
       } catch {
         // keep current data on transient network failures
       }
@@ -785,13 +938,17 @@ export default function App() {
   const viewTitle =
     view === "today"
       ? "今日"
-      : view === "all"
-        ? "全部"
-        : view === "done"
-          ? "已完成"
-          : view === "notes"
-            ? "备忘录"
-            : "每日回顾";
+      : view === "calendar"
+        ? "日历"
+        : view === "goals"
+          ? "目标"
+          : view === "all"
+            ? "全部"
+            : view === "done"
+              ? "已完成"
+              : view === "notes"
+                ? "备忘录"
+                : "每日回顾";
 
   if (authState !== "in") {
     return (
@@ -812,33 +969,46 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar
-        mode={mode}
-        view={view}
-        counts={counts}
-        onSelectView={handleSelectView}
-        onToggleMode={handleToggleMode}
-        onLock={() => {
-          // 未设本机访问码时，先引导设置（锁定前设码才有意义）
-          if (mode === "personal" && !hasPersonalLock()) {
-            setPinState("setup");
-            setPinError("");
-            return;
-          }
-          lockPersonal();
-        }}
-        onExport={handleExport}
-        onImport={handleImport}
-        onSync={() => setSyncOpen(true)}
-        accountName={account?.username ?? null}
-        onLogout={() => void handleLogout()}
-      />
+      <div className={menuOpen ? "mobile-drawer open" : "mobile-drawer"}>
+        <div className="mobile-drawer-overlay" onClick={() => setMenuOpen(false)} />
+        <Sidebar
+          mode={mode}
+          view={view}
+          counts={counts}
+          onSelectView={handleSelectView}
+          onToggleMode={handleToggleMode}
+          onLock={() => {
+            // 未设本机访问码时，先引导设置（锁定前设码才有意义）
+            if (mode === "personal" && !hasPersonalLock()) {
+              setPinState("setup");
+              setPinError("");
+              return;
+            }
+            lockPersonal();
+          }}
+          onExport={handleExport}
+          onImport={handleImport}
+          onSync={() => setSyncOpen(true)}
+          accountName={account?.username ?? null}
+          onLogout={() => void handleLogout()}
+          themePrefs={themePrefs}
+          onThemeChange={(patch) => setThemePrefs((prev) => ({ ...prev, ...patch }))}
+        />
+      </div>
 
       <main className="main">
         <header className="topbar">
           <div className="topbar-row">
+            <button
+              type="button"
+              className="menu-button"
+              aria-label="打开菜单"
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu size={18} />
+            </button>
             <h1 className="view-title">{viewTitle}</h1>
-            {view !== "notes" && (
+            {view !== "notes" && view !== "review" && view !== "calendar" && view !== "goals" && (
               <div className="segmented" role="group" aria-label="排序方式">
                 <button
                   type="button"
@@ -856,7 +1026,7 @@ export default function App() {
                 </button>
               </div>
             )}
-            {view !== "notes" && view !== "review" && (
+            {view !== "notes" && view !== "review" && view !== "calendar" && view !== "goals" && (
               <div className="view-options" role="group" aria-label="视图选项">
                 <div className="segmented" role="group" aria-label="是否显示已完成">
                   <button
@@ -896,15 +1066,17 @@ export default function App() {
                 </div>
               </div>
             )}
-            <div className="search-box">
-              <Search size={15} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索"
-                aria-label="搜索"
-              />
-            </div>
+            {view !== "calendar" && view !== "goals" && (
+              <div className="search-box">
+                <Search size={15} />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="搜索"
+                  aria-label="搜索"
+                />
+              </div>
+            )}
             <button
               type="button"
               className="add-button"
@@ -917,7 +1089,29 @@ export default function App() {
         </header>
 
         <section className="list-pane">
-          {view === "review" ? (
+          {view === "calendar" ? (
+            <CalendarView
+              tasks={currentTasks}
+              goals={currentGoals}
+              dimensions={currentDimensions}
+              onSelectTask={(task) => {
+                setSelectedMemoId(null);
+                setSelectedId(task.id);
+              }}
+            />
+          ) : view === "goals" ? (
+            <GoalsView
+              goals={currentGoals}
+              tasks={currentTasks}
+              dimensions={currentDimensions}
+              onAddGoal={addGoal}
+              onDeleteGoal={deleteGoal}
+              onSelectTask={(task) => {
+                setSelectedMemoId(null);
+                setSelectedId(task.id);
+              }}
+            />
+          ) : view === "review" ? (
             <ReviewView
               tasks={currentTasks}
               selectedId={selectedId}
@@ -944,45 +1138,24 @@ export default function App() {
               onDelete={deleteMemo}
             />
           ) : view === "today" ? (
-            <div className="today-sections">
-              <div className="today-section">
-                <div className="section-head">
-                  <h2>今日待办</h2>
-                  <span className="section-count">{todayGroups.open.length}</span>
-                </div>
-                <TaskList
-                  tasks={todayGroups.open}
-                  selectedId={selectedId}
-                  full={viewPrefs.showFullInfo}
-                  emptyText="今天没有待办"
-                  onToggle={toggleTask}
-                  onSelect={(task) => {
-                    setSelectedMemoId(null);
-                    setSelectedId(task.id);
-                  }}
-                  onDelete={deleteTask}
-                />
-              </div>
-              {viewPrefs.showCompleted && todayGroups.done.length > 0 && (
-                <div className="today-section done-section">
-                  <div className="section-head">
-                    <h2>今日已完成</h2>
-                    <span className="section-count">{todayGroups.done.length}</span>
-                  </div>
-                  <TaskList
-                    tasks={todayGroups.done}
-                    selectedId={selectedId}
-                    full={viewPrefs.showFullInfo}
-                    onToggle={toggleTask}
-                    onSelect={(task) => {
-                      setSelectedMemoId(null);
-                      setSelectedId(task.id);
-                    }}
-                    onDelete={deleteTask}
-                  />
-                </div>
-              )}
-            </div>
+            <TodayView
+              open={todayGroups.open}
+              done={todayGroups.done}
+              dimensions={currentDimensions}
+              mode={viewPrefs.todayMode}
+              onModeChange={(todayMode) => setViewPrefs((prev) => ({ ...prev, todayMode }))}
+              showCompleted={viewPrefs.showCompleted}
+              full={viewPrefs.showFullInfo}
+              onToggle={toggleTask}
+              onSelect={(task) => {
+                setSelectedMemoId(null);
+                setSelectedId(task.id);
+              }}
+              onDelete={deleteTask}
+              onAddDimension={addDimension}
+              onDeleteDimension={deleteDimension}
+              onRenameDimension={(id, name) => updateDimension(id, { name })}
+            />
           ) : (
             <TaskList
               tasks={visibleTasks}
@@ -1003,6 +1176,8 @@ export default function App() {
         <TaskDrawer
           task={selectedTask}
           memos={currentMemos}
+          dimensions={currentDimensions}
+          goals={currentGoals}
           onOpenMemo={openMemo}
           onSave={(patch) => updateTask(selectedTask.id, patch)}
           onDelete={deleteTask}
@@ -1027,6 +1202,8 @@ export default function App() {
           onSubmitTask={handleAddTask}
           onSubmitMemo={handleAddMemo}
           onClose={() => setDialog(null)}
+          dimensions={currentDimensions}
+          goals={currentGoals}
         />
       )}
 
@@ -1066,6 +1243,14 @@ export default function App() {
           )}
         </div>
       )}
+
+      <MobileTabBar
+        view={view}
+        counts={counts}
+        menuOpen={menuOpen}
+        onSelectView={handleSelectView}
+        onOpenMenu={() => setMenuOpen(true)}
+      />
     </div>
   );
 }

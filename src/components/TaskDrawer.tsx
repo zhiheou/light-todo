@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
-import type { Memo, Priority, RepeatRule, Task } from "../types";
+import type { Dimension, Goal, Memo, Priority, RepeatRule, Task } from "../types";
 import { memoTitle } from "../lib/markdown";
 
 interface TaskDrawerProps {
   task: Task;
   memos: Memo[];
+  dimensions?: Dimension[];
+  goals?: Goal[];
   onOpenMemo: (id: string) => void;
   onSave: (patch: Partial<Task>) => void;
   onDelete: (task: Task) => void;
@@ -46,6 +48,8 @@ function todayLocal(): string {
 export default function TaskDrawer({
   task,
   memos,
+  dimensions = [],
+  goals = [],
   onOpenMemo,
   onSave,
   onDelete,
@@ -59,6 +63,8 @@ export default function TaskDrawer({
   const [remindAt, setRemindAt] = useState(isoToLocalInput(task.remindAt));
   const [repeat, setRepeat] = useState<RepeatRule | null>(task.repeat ?? null);
   const [memoId, setMemoId] = useState(task.memoId ?? "");
+  const [dimensionId, setDimensionId] = useState(task.dimensionId ?? "");
+  const [goalId, setGoalId] = useState(task.goalId ?? "");
 
   useEffect(() => {
     setTitle(task.title);
@@ -72,6 +78,8 @@ export default function TaskDrawer({
     );
     setRepeat(task.repeat ?? null);
     setMemoId(task.memoId ?? "");
+    setDimensionId(task.dimensionId ?? "");
+    setGoalId(task.goalId ?? "");
   }, [task.id]);
 
   useEffect(() => {
@@ -95,6 +103,8 @@ export default function TaskDrawer({
       remindAt: localInputToIso(finalRemindAt),
       repeat: repeat ?? undefined,
       memoId: memoId || undefined,
+      dimensionId: dimensionId || undefined,
+      goalId: goalId || undefined,
     });
     onClose();
   }
@@ -306,6 +316,43 @@ export default function TaskDrawer({
             <button type="button" className="secondary-button small" onClick={() => setMemoId("")}>
               清除关联
             </button>
+          </div>
+        )}
+      </div>
+
+      <div className="field-row">
+        {dimensions.length > 0 && (
+          <div className="field">
+            <label htmlFor="task-dimension">维度</label>
+            <select
+              id="task-dimension"
+              value={dimensionId}
+              onChange={(event) => setDimensionId(event.target.value)}
+            >
+              <option value="">不指定</option>
+              {dimensions.map((dim) => (
+                <option key={dim.id} value={dim.id}>
+                  {dim.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {goals.length > 0 && (
+          <div className="field">
+            <label htmlFor="task-goal">目标</label>
+            <select
+              id="task-goal"
+              value={goalId}
+              onChange={(event) => setGoalId(event.target.value)}
+            >
+              <option value="">不指定</option>
+              {goals.map((goal) => (
+                <option key={goal.id} value={goal.id}>
+                  {goal.title}
+                </option>
+              ))}
+            </select>
           </div>
         )}
       </div>

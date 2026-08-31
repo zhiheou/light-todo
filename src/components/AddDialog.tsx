@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Repeat, X } from "lucide-react";
-import type { Priority, RepeatRule } from "../types";
+import type { Dimension, Goal, Priority, RepeatRule } from "../types";
 import { parseQuickAdd } from "../lib/nlp";
 import { describeRepeat, shortRepeatLabel } from "../lib/repeat";
 
@@ -12,6 +12,8 @@ export interface TaskDraft {
   dueTime: string;
   remindAt: string;
   repeat: RepeatRule | null;
+  dimensionId?: string;
+  goalId?: string;
 }
 
 interface AddDialogProps {
@@ -19,6 +21,8 @@ interface AddDialogProps {
   onSubmitTask: (draft: TaskDraft) => void;
   onSubmitMemo: (text: string) => void;
   onClose: () => void;
+  dimensions?: Dimension[];
+  goals?: Goal[];
 }
 
 const PRIORITIES: Array<{ value: Priority; label: string }> = [
@@ -76,6 +80,8 @@ export default function AddDialog({
   onSubmitTask,
   onSubmitMemo,
   onClose,
+  dimensions = [],
+  goals = [],
 }: AddDialogProps) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
@@ -84,6 +90,8 @@ export default function AddDialog({
   const [dueTime, setDueTime] = useState("");
   const [remindAt, setRemindAt] = useState("");
   const [repeat, setRepeat] = useState<RepeatRule | null>(null);
+  const [dimensionId, setDimensionId] = useState("");
+  const [goalId, setGoalId] = useState("");
   const [memoText, setMemoText] = useState("");
   // 用户手动改过的字段：NLP 不再覆盖
   const manual = useRef<Set<"dueDate" | "dueTime" | "remindAt" | "repeat" | "priority">>(new Set());
@@ -119,6 +127,8 @@ export default function AddDialog({
       dueTime,
       remindAt: localInputToIso(finalRemindAt),
       repeat,
+      dimensionId: dimensionId || undefined,
+      goalId: goalId || undefined,
     });
   }
 
@@ -341,6 +351,43 @@ export default function AddDialog({
                 />
               </div>
             )}
+
+            <div className="field-row">
+              {dimensions.length > 0 && (
+                <div className="field">
+                  <label htmlFor="add-dimension">维度</label>
+                  <select
+                    id="add-dimension"
+                    value={dimensionId}
+                    onChange={(event) => setDimensionId(event.target.value)}
+                  >
+                    <option value="">不指定</option>
+                    {dimensions.map((dim) => (
+                      <option key={dim.id} value={dim.id}>
+                        {dim.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {goals.length > 0 && (
+                <div className="field">
+                  <label htmlFor="add-goal">目标</label>
+                  <select
+                    id="add-goal"
+                    value={goalId}
+                    onChange={(event) => setGoalId(event.target.value)}
+                  >
+                    <option value="">不指定</option>
+                    {goals.map((goal) => (
+                      <option key={goal.id} value={goal.id}>
+                        {goal.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
 
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={onClose}>

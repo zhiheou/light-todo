@@ -9,14 +9,20 @@
   --text-2: #5d6b7a;
   --text-3: #94a3b3;
   --muted: #5d6b7a;
-  --primary: #2563eb;
-  --accent: #2563eb;
-  --accent-soft: #eaf1ff;
+  --primary: #8b91e8;
+  --accent: #8b91e8;
+  --accent-soft: #e7e8fb;
   --teal: #0f766e;
   --teal-soft: #e6f4f2;
   --danger: #dc2626;
   --ok: #16a34a;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.08);
+  /* ---- v3.3 主题变量（AppearancePanel 切换）---- */
+  --coral: #8b91e8;
+  --coral-soft: #e7e8fb;
+  --coral-ink: #6d74d6;
+  --font-app: "LXGW WenKai", "LXGW WenKai TC", "LXGW WenKai Screen", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --app-font-scale: 1;
 }
 
 * {
@@ -31,10 +37,10 @@ body,
 
 body {
   margin: 0;
-  font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-app, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif);
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--app-font-scale, 1));
 }
 
 button,
@@ -55,6 +61,23 @@ button {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
   overflow: hidden;
+}
+
+/* 移动端抽屉容器：桌面端就是普通网格列，内含侧栏 */
+.mobile-drawer {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-drawer .sidebar {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.mobile-drawer-overlay {
+  display: none;
 }
 
 .sidebar {
@@ -285,6 +308,16 @@ button {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* 移动端菜单按钮：桌面端隐藏 */
+.menu-button {
+  display: none;
+}
+
+/* 移动端底部 TabBar：桌面端隐藏 */
+.mobile-tabbar {
+  display: none;
 }
 
 .view-title {
@@ -1111,7 +1144,8 @@ button {
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-2);
@@ -1119,6 +1153,16 @@ button {
   padding: 9px 10px;
   outline: none;
   width: 100%;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field-row .field {
+  margin-bottom: 0;
 }
 
 .field textarea {
@@ -1417,68 +1461,165 @@ button {
   border-color: #fecaca;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 768px) {
   .app-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    display: block;
   }
 
+  .main {
+    height: 100vh;
+  }
+
+  /* 侧栏改为抽屉：默认隐藏，由「更多」/菜单按钮滑出 */
   .sidebar {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 10px;
-    overflow-x: auto;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(300px, 86vw);
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition:
+      transform 0.22s ease,
+      visibility 0s linear 0.22s;
+    z-index: 40;
+    overflow-y: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px 12px;
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-drawer.open .sidebar {
+    transform: translateX(0);
+    visibility: visible;
+    transition:
+      transform 0.22s ease,
+      visibility 0s;
+  }
+
+  .mobile-drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.46);
+    z-index: 39;
+    opacity: 0;
+    pointer-events: none;
+    display: block;
+    transition: opacity 0.22s ease;
+  }
+
+  .mobile-drawer.open .mobile-drawer-overlay {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .brand {
-    font-size: 14px;
-    flex: none;
-  }
-
-  .mode-switch {
-    width: 150px;
-    flex: none;
+    font-size: 15px;
   }
 
   .nav-list {
-    flex-direction: row;
-    flex: none;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .nav-item {
-    width: auto;
-    height: 34px;
-    padding: 0 8px;
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
     white-space: nowrap;
   }
 
   .sidebar-foot {
-    margin: 0 0 0 auto;
-    flex-direction: row;
-    align-items: center;
+    margin: 0;
+    flex-direction: column;
+    align-items: stretch;
     padding: 0;
-    flex: none;
-  }
-
-  .lock-button {
-    height: 32px;
-    padding: 0 10px;
   }
 
   .backup-row {
     display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
+  .lock-button,
   .backup-button {
-    height: 32px;
-    padding: 0 8px;
+    height: 34px;
+    padding: 0 10px;
   }
 
-  .local-note {
-    display: none;
+  /* 底部 TabBar */
+  .mobile-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 56px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 30;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mobile-tabbar button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .mobile-tabbar button.active {
+    color: var(--accent);
+  }
+
+  .tab-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+  }
+
+  .tab-badge {
+    position: absolute;
+    top: -4px;
+    right: -10px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 9px;
+    font-style: normal;
+    line-height: 15px;
+    text-align: center;
+  }
+
+  /* 顶栏菜单按钮（移动端出现） */
+  .menu-button {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    color: var(--muted);
+  }
+
+  .menu-button:hover {
+    background: var(--surface-2);
+  }
+
+  /* 主区留出底部 TabBar 空间 */
+  .main {
+    padding-bottom: 56px;
   }
 
   .task-row {
@@ -1494,11 +1635,34 @@ button {
   }
 
   .search-box input {
-    width: 130px;
+    width: 120px;
   }
 
   .stat-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* 桌面端常显的顶栏搜索在移动端折叠 */
+  .search-box {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .search-box input {
+    width: 100%;
+  }
+}
+
+/* 减少动态效果偏好：抽屉直接切换，不做位移动画 */
+@media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .mobile-drawer.open .sidebar {
+    transition: none;
+  }
+
+  .mobile-drawer-overlay,
+  .mobile-drawer.open .mobile-drawer-overlay {
+    transition: none;
   }
 }
 
@@ -1855,4 +2019,1084 @@ button {
 
 .local-note-panel b {
   color: var(--accent);
+}
+
+/* ---------- v3.3 卡片风格（data-card-style）---------- */
+html[data-card-style="plain"] {
+  --shadow: none;
+}
+html[data-card-style="plain"] .task-row,
+html[data-card-style="plain"] .memo-row,
+html[data-card-style="plain"] .review-summary,
+html[data-card-style="plain"] .review-section {
+  box-shadow: none;
+  border-radius: 4px;
+}
+html[data-card-style="colorful"] .task-row,
+html[data-card-style="colorful"] .memo-row {
+  border-color: transparent;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 4px 14px rgba(16, 24, 40, 0.05);
+}
+html[data-card-style="colorful"] .priority.p1 {
+  background: var(--danger);
+  color: #fff;
+}
+html[data-card-style="colorful"] .priority.p2 {
+  background: #ea8a3c;
+  color: #fff;
+}
+html[data-card-style="colorful"] .priority.p4 {
+  background: var(--text-3);
+  color: #fff;
+}
+
+/* ---------- 外观面板（v3.3）---------- */
+.appearance-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 2px;
+}
+
+.appearance-panel {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.appearance-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.appearance-group:last-child {
+  margin-bottom: 0;
+}
+
+.appearance-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.appearance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.appearance-row .swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.12);
+}
+
+.appearance-row .swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor;
+  color: var(--text);
+}
+
+.appearance-row .chip-btn {
+  flex: 1;
+  min-width: 44px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.appearance-row .chip-btn:hover {
+  color: var(--text);
+  border-color: #b9c4cf;
+}
+
+.appearance-row .chip-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+/* ---------- 今日页多形态（v3.3）---------- */
+.today-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.today-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.today-modes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.today-modes button + button {
+  border-left: 1px solid var(--border);
+}
+
+.today-modes button.active {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.today-modes button:hover {
+  color: var(--text);
+}
+
+/* 维度打卡 */
+.dimension-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dimension-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dimension-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.dimension-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dimension-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.dimension-progress-text {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dimension-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.dimension-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.dimension-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dimension-group:hover .dimension-delete {
+  opacity: 1;
+}
+
+.dimension-delete:hover {
+  color: var(--danger);
+  background: rgba(220, 76, 76, 0.08);
+}
+
+.dimension-add {
+  margin-top: 2px;
+}
+
+.dimension-add-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dimension-add-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.dimension-add-form {
+  display: flex;
+  gap: 6px;
+}
+
+.dimension-add-form input {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.dimension-add-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.dimension-rename-input {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  min-width: 0;
+}
+
+.dimension-add-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dimension-add-btn:hover {
+  background: var(--accent-ink);
+}
+
+/* 时间线模式 */
+.task-row.timeline {
+  grid-template-columns: 28px 56px minmax(0, 1fr);
+}
+
+.timeline-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: right;
+  padding-right: 10px;
+  border-right: 1px dashed var(--border);
+}
+
+/* 日程模式时段标签 */
+.schedule-time {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ---------- 日历视图（v3.3）---------- */
+.calendar-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.calendar-nav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.calendar-nav button:hover {
+  color: var(--text);
+  border-color: #b9c4cf;
+}
+
+.calendar-today-btn {
+  width: auto !important;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.calendar-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+
+.calendar-week {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-week-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.calendar-week-range {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.calendar-week-summary {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.calendar-week-summary b {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.calendar-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.calendar-day {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  min-height: 96px;
+}
+
+.calendar-day.today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.calendar-day.past .calendar-day-tasks {
+  opacity: 0.55;
+}
+
+.calendar-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.calendar-day-name {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.calendar-day.today .calendar-day-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.calendar-day-num {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.calendar-day-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-task {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-size: 11px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.calendar-task span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-task.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.calendar-more {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.calendar-week-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.calendar-week-goals,
+.calendar-week-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-empty-tip {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.goal-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.goal-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.goal-chip-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-chip-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.goal-chip-bar {
+  width: 56px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.goal-chip-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.calendar-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.calendar-ring {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--ring, 0%), var(--surface-2) 0);
+  display: grid;
+  place-items: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.calendar-ring::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.calendar-ring span {
+  position: relative;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.calendar-stats-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.calendar-stats-labels div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-stats-labels b {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.stat-dot.done {
+  background: var(--accent);
+}
+
+.stat-dot.total {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+/* 月视图 */
+.calendar-month {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.calendar-month-head,
+.calendar-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-month-head {
+  gap: 6px;
+}
+
+.calendar-month-col-label {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.calendar-month-grid {
+  gap: 4px;
+}
+
+.calendar-month-cell {
+  min-height: 84px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--surface);
+}
+
+.calendar-month-cell.outside {
+  opacity: 0.35;
+}
+
+.calendar-month-cell.today {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.calendar-month-day {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.calendar-month-cell.today .calendar-month-day {
+  color: var(--accent);
+}
+
+.calendar-month-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.calendar-month-tasks .calendar-task {
+  font-size: 10px;
+}
+
+/* 年视图热力图 */
+.calendar-year {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.calendar-year-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.calendar-year-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+  flex: 1;
+}
+
+.calendar-year-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.calendar-year-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.calendar-year-month {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calendar-year-month-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.calendar-year-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.heat {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.heat-0 {
+  background: var(--surface-2);
+}
+
+.heat-1 {
+  background: var(--accent-soft);
+}
+
+.heat-2 {
+  background: color-mix(in srgb, var(--accent) 45%, white);
+}
+
+.heat-3 {
+  background: var(--accent);
+}
+
+.heat-4 {
+  background: var(--accent-ink);
+}
+
+.heat.blank {
+  visibility: hidden;
+}
+
+.calendar-year-summary {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.calendar-year-summary b {
+  color: var(--accent);
+  font-size: 16px;
+}
+
+/* ---------- 目标管理（v3.3）---------- */
+.goals-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.goals-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goals-toolbar .add-button {
+  width: 32px;
+  height: 32px;
+}
+
+.goals-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.goals-form-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.goals-form input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.goals-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.goals-form-create {
+  height: 32px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.goals-form-create:hover {
+  background: var(--accent-ink);
+}
+
+.goals-form-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.goals-form-cancel:hover {
+  color: var(--text);
+}
+
+.goals-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.goal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.goal-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft) inset;
+}
+
+.goal-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-card-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.goal-card-period {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.goal-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-card-active {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ok);
+  background: #e7f6ee;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.goal-card-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.goal-card-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.goal-card-delete:hover {
+  color: var(--danger);
+  background: rgba(220, 76, 76, 0.08);
+}
+
+.goal-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.goal-card-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-card-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.goal-card-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.goal-card-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.goal-card-percent {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  min-width: 38px;
+  text-align: right;
+}
+
+.goal-card-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.goal-task:hover {
+  border-color: #b9c4cf;
+}
+
+.goal-task span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-task.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.goal-task i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.goal-card-more {
+  font-size: 11px;
+  color: var(--muted);
+  padding-left: 4px;
+}
+
+.empty-action {
+  margin-top: 4px;
+  height: 30px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.empty-action:hover {
+  background: var(--accent);
+  color: #fff;
 }

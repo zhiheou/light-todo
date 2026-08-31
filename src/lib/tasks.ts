@@ -132,6 +132,8 @@ export function normalizeTask(raw: unknown): Task {
     task.repeat = rule;
   }
   task.memoId = typeof t.memoId === "string" ? t.memoId : undefined;
+  task.dimensionId = typeof t.dimensionId === "string" ? t.dimensionId : undefined;
+  task.goalId = typeof t.goalId === "string" ? t.goalId : undefined;
   return task;
 }
 
