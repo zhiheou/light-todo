@@ -1,11 +1,15 @@
 import { Bell, CheckCircle2, Circle, ListTodo, Pencil, Repeat, Trash2 } from "lucide-react";
 import type { Priority, Task } from "../types";
-import { formatDue, isOverdue } from "../lib/tasks";
+import { formatCompletedAt, formatDue, isOverdue } from "../lib/tasks";
 import { describeRepeat, shortRepeatLabel } from "../lib/repeat";
 
 interface TaskListProps {
   tasks: Task[];
   selectedId: string | null;
+  /** 详情模式：备注全文展示（不单行省略） */
+  full?: boolean;
+  /** 空态标题文案（默认"暂无任务"） */
+  emptyText?: string;
   onToggle: (id: string) => void;
   onSelect: (task: Task) => void;
   onDelete: (task: Task) => void;
@@ -21,6 +25,8 @@ const PRIORITY_LABEL: Record<Priority, string> = {
 export default function TaskList({
   tasks,
   selectedId,
+  full = false,
+  emptyText = "暂无任务",
   onToggle,
   onSelect,
   onDelete,
@@ -29,10 +35,12 @@ export default function TaskList({
     return (
       <div className="empty">
         <ListTodo size={28} />
-        <span>暂无任务</span>
-        <span className="empty-hint">
-          试试自然语言：<b>明天10点提交周报</b>、<b>每天8点提醒我打卡</b>、<b>每周一例会</b>
-        </span>
+        <span>{emptyText}</span>
+        {emptyText === "暂无任务" && (
+          <span className="empty-hint">
+            试试自然语言：<b>明天10点提交周报</b>、<b>每天8点提醒我打卡</b>、<b>每周一例会</b>
+          </span>
+        )}
       </div>
     );
   }
@@ -43,6 +51,7 @@ export default function TaskList({
         const now = new Date();
         const due = formatDue(task, now);
         const overdue = isOverdue(task, now);
+        const completedAt = formatCompletedAt(task, now);
         return (
           <article
             key={task.id}
@@ -74,6 +83,9 @@ export default function TaskList({
                 <span className={`priority p${task.priority}`}>{PRIORITY_LABEL[task.priority]}</span>
               </div>
               <div className="task-meta">
+                {completedAt && (
+                  <span className="meta-chip done-at">完成于 {completedAt}</span>
+                )}
                 {due && (
                   <span className={overdue ? "meta-chip overdue" : "meta-chip"}>
                     {overdue ? "已逾期" : due}
@@ -93,7 +105,7 @@ export default function TaskList({
                 )}
               </div>
               {task.notes && (
-                <div className="task-note">{task.notes}</div>
+                <div className={full ? "task-note full" : "task-note"}>{task.notes}</div>
               )}
             </div>
 

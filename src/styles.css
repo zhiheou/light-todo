@@ -1,11 +1,15 @@
 :root {
   color-scheme: light;
   --bg: #eef1f4;
+  --bg-2: #f6f8fa;
   --surface: #ffffff;
   --surface-2: #f6f8fa;
   --border: #d8dfe6;
   --text: #1a2430;
+  --text-2: #5d6b7a;
+  --text-3: #94a3b3;
   --muted: #5d6b7a;
+  --primary: #2563eb;
   --accent: #2563eb;
   --accent-soft: #eaf1ff;
   --teal: #0f766e;
@@ -309,6 +313,30 @@ button {
   color: var(--text);
 }
 
+/* 顶栏视图选项：显示/隐藏已完成 + 详情/精简，窄屏可横向滚动 */
+.view-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.view-options::-webkit-scrollbar {
+  display: none;
+}
+
+.view-options .segmented button {
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
+.view-options .segmented button.active {
+  background: var(--surface);
+  color: var(--accent);
+}
+
 .search-box {
   position: relative;
   display: flex;
@@ -388,6 +416,66 @@ button {
 .list-pane {
   overflow-y: auto;
   padding: 14px 18px 28px;
+}
+
+/* 今日视图分组 */
+.today-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.section-count {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.today-section.done-section .section-head h2 {
+  color: var(--ok);
+}
+
+.today-section.done-section .section-count {
+  background: #e7f6ee;
+  border-color: #bbe4cf;
+  color: var(--ok);
+}
+
+/* 详情模式：备注全文展示 */
+.task-note.full {
+  white-space: pre-wrap;
+  overflow: visible;
+  line-height: 1.5;
+}
+
+/* 完成时间徽标 */
+.meta-chip.done-at {
+  color: var(--ok);
+  font-weight: 600;
 }
 
 .review-view {

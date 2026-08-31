@@ -111,6 +111,7 @@ export function normalizeTask(raw: unknown): Task {
     dueTime: typeof t.dueTime === "string" ? t.dueTime : "",
     remindAt: typeof t.remindAt === "string" ? t.remindAt : "",
     completed: Boolean(t.completed),
+    completedAt: typeof t.completedAt === "number" ? t.completedAt : undefined,
     createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
     updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now(),
   };
@@ -183,7 +184,13 @@ export function toggleCompleted(
     if (task.id !== id) return task;
     const wasDone = task.completed;
     if (!wasDone && task.repeat) spawned = nextTaskInstance(task, now);
-    return { ...task, completed: !wasDone, updatedAt: now.getTime() };
+    return {
+      ...task,
+      completed: !wasDone,
+      // 完成时记录完成时间；取消完成时清除，避免旧时间残留
+      completedAt: !wasDone ? now.getTime() : undefined,
+      updatedAt: now.getTime(),
+    };
   });
   if (spawned) next.unshift(spawned);
   return { tasks: next, spawned };
@@ -199,7 +206,19 @@ export function isOverdue(task: Task, now: Date): boolean {
   return due.getTime() < now.getTime();
 }
 
-export function filterTasks(tasks: Task[], view: ViewFilter, search: string, now: Date): Task[] {
+// 是否在今天完成（按 completedAt 所在自然日判断）
+export function isCompletedToday(task: Task, now: Date): boolean {
+  if (!task.completed || typeof task.completedAt !== "number") return false;
+  return toDateString(new Date(task.completedAt)) === toDateString(now);
+}
+
+export function filterTasks(
+  tasks: Task[],
+  view: ViewFilter,
+  search: string,
+  now: Date,
+  opts?: { showCompleted?: boolean },
+): Task[] {
   const query = search.trim().toLowerCase();
   const filtered = tasks.filter((task) => {
     if (query) {
@@ -207,7 +226,7 @@ export function filterTasks(tasks: Task[], view: ViewFilter, search: string, now
       if (!haystack.includes(query)) return false;
     }
     if (view === "done") return task.completed;
-    if (task.completed) return false;
+    if (task.completed) return !!opts?.showCompleted;
     if (view === "today") {
       return isOverdue(task, now) || task.dueDate === toDateString(now);
     }
@@ -250,4 +269,18 @@ export function formatDue(task: Task, now: Date): string {
         ? "明天"
         : `${m}月${d}日`;
   return task.dueTime ? `${dateLabel} ${task.dueTime}` : dateLabel;
+}
+
+// 完成时间标签：「完成于 今天 09:30」/「完成于 昨天 21:00」/「完成于 8月31日」
+export function formatCompletedAt(task: Task, now: Date): string {
+  if (!task.completed || typeof task.completedAt !== "number") return "";
+  const at = new Date(task.completedAt);
+  const atKey = toDateString(at);
+  const today = toDateString(now);
+  const yesterday = toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  const dateLabel =
+    atKey === today ? "今天" : atKey === yesterday ? "昨天" : `${at.getMonth() + 1}月${at.getDate()}日`;
+  return `${dateLabel} ${time}`;
 }

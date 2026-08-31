@@ -1,6 +1,6 @@
 import { CheckCircle2, Clock3, ListTodo, Sparkles } from "lucide-react";
 import type { Task } from "../types";
-import { isOverdue } from "../lib/tasks";
+import { isCompletedToday, isOverdue } from "../lib/tasks";
 import TaskList from "./TaskList";
 
 interface ReviewViewProps {
@@ -37,7 +37,7 @@ export default function ReviewView({
   const tomorrowTasks: Task[] = [];
 
   for (const task of tasks) {
-    if (task.completed && task.dueDate === today) todayDone += 1;
+    if (task.completed && (isCompletedToday(task, now) || task.dueDate === today)) todayDone += 1;
     if (!task.completed && task.dueDate === today) todayOpen += 1;
     if (isOverdue(task, now)) overdue += 1;
     if (!task.completed && task.dueDate === tomorrow) tomorrowTasks.push(task);

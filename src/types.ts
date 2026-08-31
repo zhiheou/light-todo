@@ -26,6 +26,8 @@ export interface Task {
   completed: boolean;
   createdAt: number;
   updatedAt: number;
+  /** 可选；最近一次完成时间（仅完成时写入）。旧数据/旧备份天然兼容 */
+  completedAt?: number;
   /** 可选；undefined = 不循环。旧数据/旧备份天然兼容 */
   repeat?: RepeatRule;
   /** 可选；关联一条备忘（同空间）。备忘端不存反链，运行时反查。旧数据/旧备份天然兼容 */

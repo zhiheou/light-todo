@@ -13,6 +13,7 @@ import LoginGate from "./components/LoginGate";
 import type { AppData, Memo, Mode, SortMode, Task, ViewFilter } from "./types";
 import {
   filterTasks,
+  isCompletedToday,
   isOverdue,
   loadTasks,
   makeTask,
@@ -60,6 +61,37 @@ function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// 顶栏视图偏好：显示/隐藏已完成、精简/详情。本地持久化，不随账号同步。
+const VIEW_PREFS_KEY = "lighttodo:view-prefs:v1";
+
+interface ViewPrefs {
+  showCompleted: boolean;
+  showFullInfo: boolean;
+}
+
+function loadViewPrefs(): ViewPrefs {
+  const defaults: ViewPrefs = { showCompleted: true, showFullInfo: false };
+  try {
+    const raw = localStorage.getItem(VIEW_PREFS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<ViewPrefs>;
+    return {
+      showCompleted: typeof parsed.showCompleted === "boolean" ? parsed.showCompleted : defaults.showCompleted,
+      showFullInfo: typeof parsed.showFullInfo === "boolean" ? parsed.showFullInfo : defaults.showFullInfo,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveViewPrefs(prefs: ViewPrefs): void {
+  try {
+    localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // localStorage 不可用时静默失败，仅本次会话内生效
+  }
+}
+
 export default function App() {
   const [mode, setMode] = useState<Mode>("work");
   const [workTasks, setWorkTasks] = useState<Task[]>(() => loadTasks("work"));
@@ -70,6 +102,7 @@ export default function App() {
   const [pinError, setPinError] = useState("");
   const [view, setView] = useState<ViewFilter>("today");
   const [sortMode, setSortMode] = useState<SortMode>("priority");
+  const [viewPrefs, setViewPrefs] = useState<ViewPrefs>(() => loadViewPrefs());
   const [search, setSearch] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -384,10 +417,33 @@ export default function App() {
     };
   }, [currentTasks, currentMemos]);
 
+  useEffect(() => saveViewPrefs(viewPrefs), [viewPrefs]);
+
   const visibleTasks = useMemo(() => {
     const now = new Date();
-    return sortTasks(filterTasks(currentTasks, view, search, now), sortMode);
-  }, [currentTasks, view, search, sortMode]);
+    return sortTasks(filterTasks(currentTasks, view, search, now, { showCompleted: viewPrefs.showCompleted }), sortMode);
+  }, [currentTasks, view, search, sortMode, viewPrefs.showCompleted]);
+
+  // 今日视图：分「今日待办」与「今日已完成」两组，已完成默认保留展示
+  const todayGroups = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const open: Task[] = [];
+    const done: Task[] = [];
+    const now = new Date();
+    const today = dateKey(now);
+    for (const task of currentTasks) {
+      if (query) {
+        const haystack = `${task.title} ${task.notes}`.toLowerCase();
+        if (!haystack.includes(query)) continue;
+      }
+      if (task.completed) {
+        if (isCompletedToday(task, now) || task.dueDate === today) done.push(task);
+      } else if (isOverdue(task, now) || task.dueDate === today) {
+        open.push(task);
+      }
+    }
+    return { open: sortTasks(open, sortMode), done: sortTasks(done, sortMode) };
+  }, [currentTasks, search, sortMode]);
 
   const visibleMemos = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -800,6 +856,46 @@ export default function App() {
                 </button>
               </div>
             )}
+            {view !== "notes" && view !== "review" && (
+              <div className="view-options" role="group" aria-label="视图选项">
+                <div className="segmented" role="group" aria-label="是否显示已完成">
+                  <button
+                    type="button"
+                    className={viewPrefs.showCompleted ? "active" : ""}
+                    title="在今日/全部视图中同时显示已完成任务"
+                    onClick={() => setViewPrefs((prev) => ({ ...prev, showCompleted: true }))}
+                  >
+                    显示已完成
+                  </button>
+                  <button
+                    type="button"
+                    className={!viewPrefs.showCompleted ? "active" : ""}
+                    title="隐藏已完成任务"
+                    onClick={() => setViewPrefs((prev) => ({ ...prev, showCompleted: false }))}
+                  >
+                    隐藏
+                  </button>
+                </div>
+                <div className="segmented" role="group" aria-label="信息展示密度">
+                  <button
+                    type="button"
+                    className={viewPrefs.showFullInfo ? "active" : ""}
+                    title="展示任务全部信息（备注全文）"
+                    onClick={() => setViewPrefs((prev) => ({ ...prev, showFullInfo: true }))}
+                  >
+                    详情
+                  </button>
+                  <button
+                    type="button"
+                    className={!viewPrefs.showFullInfo ? "active" : ""}
+                    title="精简展示（备注单行省略）"
+                    onClick={() => setViewPrefs((prev) => ({ ...prev, showFullInfo: false }))}
+                  >
+                    精简
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="search-box">
               <Search size={15} />
               <input
@@ -847,10 +943,51 @@ export default function App() {
               }}
               onDelete={deleteMemo}
             />
+          ) : view === "today" ? (
+            <div className="today-sections">
+              <div className="today-section">
+                <div className="section-head">
+                  <h2>今日待办</h2>
+                  <span className="section-count">{todayGroups.open.length}</span>
+                </div>
+                <TaskList
+                  tasks={todayGroups.open}
+                  selectedId={selectedId}
+                  full={viewPrefs.showFullInfo}
+                  emptyText="今天没有待办"
+                  onToggle={toggleTask}
+                  onSelect={(task) => {
+                    setSelectedMemoId(null);
+                    setSelectedId(task.id);
+                  }}
+                  onDelete={deleteTask}
+                />
+              </div>
+              {viewPrefs.showCompleted && todayGroups.done.length > 0 && (
+                <div className="today-section done-section">
+                  <div className="section-head">
+                    <h2>今日已完成</h2>
+                    <span className="section-count">{todayGroups.done.length}</span>
+                  </div>
+                  <TaskList
+                    tasks={todayGroups.done}
+                    selectedId={selectedId}
+                    full={viewPrefs.showFullInfo}
+                    onToggle={toggleTask}
+                    onSelect={(task) => {
+                      setSelectedMemoId(null);
+                      setSelectedId(task.id);
+                    }}
+                    onDelete={deleteTask}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <TaskList
               tasks={visibleTasks}
               selectedId={selectedId}
+              full={viewPrefs.showFullInfo}
               onToggle={toggleTask}
               onSelect={(task) => {
                 setSelectedMemoId(null);
