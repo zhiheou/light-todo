@@ -1,92 +1,155 @@
-# 轻待办 v3
+<p align="center">
+  <img src="https://img.shields.io/badge/%E8%BD%BB%E4%BE%8B%E5%BE%85%E5%8A%9E-Light%20Todo-36a3f7?style=flat-square" alt="Light Todo">
+</p>
 
-一个带账号体系的本地优先双模式任务工作台。任何浏览器打开同一个网址，登录同一账号后，任务和备忘录会自动同步。
+<h3 align="center">端到端加密 · 双空间隔离 · 一句话创建 · 多端自动同步 的轻量待办与备忘工作台</h3>
 
-## 核心能力
+<p align="center">
+  <a href="https://todo.aebuiyke.xyz"><img src="https://img.shields.io/badge/Online-todo.aebuiyke.xyz-36a3f7?style=flat-square" alt="Live"></a>
+  <img src="https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-orange?style=flat-square" alt="Cloudflare">
+  <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
+  <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
+  <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
+  <img src="https://img.shields.io/badge/version-v3.1-blue?style=flat-square" alt="Version">
+</p>
 
-- 工作 / 个人双模式隔离，个人模式访问码解锁
-- 任务添加、编辑、删除、完成、优先级、截止日期、默认提前 10 分钟提醒
-- 备忘录：记录零散小事，支持置顶、搜索
-- 点击"+"弹窗添加任务或备忘，标题支持自然语言
-- 每日智能回顾：今日完成/未完成/逾期统计与建议
-- 明日待办：提前查看和安排明天的任务
-- 账号注册 / 登录，数据端到端加密后存储，登录后自动同步
-- 登录后每 30 秒自动拉取最新数据，窗口重新聚焦时也会立即拉取
-- 隐藏式空间切换、紧急隐藏快捷键、失焦自动锁定
+---
 
-## 本地运行
+「轻待办」是一款注重隐私的待办 + 备忘录工具。任何设备打开同一个网址、登录同一账号，任务和备忘录就会自动同步；你的数据在本地加密后上传，服务器只见密文。
 
-先启动后端：
+## 📖 快速入口
+
+- [🚀 在线体验](#-在线体验)
+- [✨ 核心特性](#-核心特性)
+- [🗂️ 功能总览](#-功能总览)
+- [🔐 数据与隐私（两层安全体系）](#-数据与隐私两层安全体系)
+- [🖥️ 本地运行](#-本地运行)
+- [☁️ 部署到 Cloudflare](#-部署到-cloudflare)
+- [🎹 快捷键](#-快捷键)
+- [📁 目录结构](#-目录结构)
+- [🗓️ 版本历史](#-版本历史)
+- [📜 开源协议](#-开源协议)
+
+## 🚀 在线体验
+
+| 地址 | 说明 |
+|---|---|
+| **https://todo.aebuiyke.xyz** | 主域名，国内免代理可直接访问 |
+| https://light-todo.light-todo-worker.workers.dev | 备用域名（部分网络可能被 SNI 屏蔽） |
+
+注册账号即可使用。**注册时的密码 = 数据加密密钥**，请务必牢记——忘记密码将无法找回任何数据（这是端到端加密的特性，不是 bug）。
+
+## ✨ 核心特性
+
+- **一句话创建任务**：自然语言自动识别日期、提醒与循环规则
+  - `明天10点提交周报` → 自动填好时间与提醒
+  - `每天8点半喝水`、`每周一例会` → 自动生成循环任务
+- **今日 / 回顾 / 备忘录** 三类视图，一眼看清今天要做什么
+- **工作 / 个人双空间**：侧边栏一键切换，个人空间需本机访问码进入（防他人偷看）
+- **端到端加密**：数据用账号密码派生的密钥加密，服务器只存密文，任何情况下无法解密
+- **多端自动同步**：登录后每 30 秒自动拉取最新数据，窗口重新聚焦时立即同步；换设备登录即恢复
+- **紧急隐藏**：一键隐藏个人内容并退回工作模式（`Ctrl+Shift+Alt+Esc`）
+
+## 🗂️ 功能总览
+
+| 模块 | 能力 | 说明 |
+|---|---|---|
+| 任务 | 增删改 / 完成 / 优先级 / 截止时间 / 提醒 | 默认提前 10 分钟提醒；支持循环任务 |
+| 备忘录 | Markdown / 标签 / 置顶 / 搜索 | v3.1 升级：编辑+预览双 tab，`- [ ]` 复选框勾选即保存 |
+| 任务↔备忘 | **双向关联** | v3.1 新增：任务抽屉可关联备忘；备忘反显「被 N 个任务引用」，点击互跳；删除备忘自动清理引用，撤销删除自动恢复 |
+| 标签 | 回车/逗号添加，列表顶部过滤 | 可与搜索叠加 |
+| 空间 | 工作 / 个人双模式 | 个人空间用本机访问码作门锁 |
+| 回顾 | 每日智能回顾 | 今日完成 / 未完成 / 逾期统计与建议；明日待办提前安排 |
+| 同步 | 账号自动同步 | 另有 WebDAV 手动同步保留在侧栏，作为高级选项 |
+| 隐私 | 端到端加密 | 数据本地加密后才上传 |
+
+## 🔐 数据与隐私（两层安全体系）
+
+| 层 | 用途 | 存储位置 | 换设备 |
+|---|---|---|---|
+| **账号密码** | 加密数据（AES-256-GCM，服务器只见密文） | 随账号同步 | 换设备登录照样同步 |
+| **本机访问码** | 只做「门锁」——决定进个人空间要不要输码 | 仅本机 localStorage（存 PBKDF2 哈希摘要，非明文） | 不随账号同步 |
+
+> 一句话记住：**数据安全靠账号密码，访问码只是本机第二道锁**——防止别人用你登录着的电脑偷看个人空间。访问码不参与数据加密，换设备后个人数据照常同步，只是那台设备的门锁密码不同。
+
+- 密码 → PBKDF2(150k, SHA-256) 派生密钥 → AES-256-GCM 加密全部数据
+- 服务器只存密文 + 随机 IV，无法解密任何用户数据
+- 本机访问码仅存 PBKDF2 哈希摘要，不存明文
+- 旧版个人空间备份（PIN 密钥加密）与账号密码密钥不互通，导入时自动忽略并提示
+
+## 🖥️ 本地运行
 
 ```bash
+# 1. 安装依赖
 npm install
-cd server
-npm install
-cd ..
+cd server && npm install && cd ..
+
+# 2. 启动本地后端（API，监听 1450 端口）
 npm run server
-```
 
-再启动前端：
-
-```bash
+# 3. 另开终端启动前端
 npm run dev
 ```
 
-打开 `http://127.0.0.1:1420/`，点击左下角"登录账号"即可注册或登录。
+打开 `http://127.0.0.1:1420/`，点击左下角「登录账号」即可注册或登录（前端 `/api` 已通过 Vite 代理转发到本地后端）。
 
-## 公网测试地址
+> 生产环境运行在 Cloudflare Workers + D1 上。想本地跑与线上完全一致的 Worker 后端：`cd worker && npm install && npx wrangler dev`（API 默认在 8787 端口，需将 `vite.config.ts` 的代理目标改为该端口）。
 
-当前 v3 已通过 Cloudflare 临时隧道暴露为公网网址：
+## ☁️ 部署到 Cloudflare
 
-`https://thread-coins-forecast-accordingly.trycloudflare.com`
-
-任何电脑、手机浏览器打开该网址，注册或登录后即可自动同步。临时隧道会在本机进程停止后失效；正式公开上线需要把项目部署到一台长期运行的服务器，或使用 Cloudflare 命名隧道。
-
-## 部署到其他电脑
-
-把整个项目部署到一台有 Node.js 的服务器上，执行：
+项目已接入 **Cloudflare Workers + D1**（SQLite），静态资源由 Wrangler `[assets]` 托管，SPA 与 API 同域、零 CORS。
 
 ```bash
-npm install
-cd server && npm install && cd ..
+# 1. 构建前端到 dist/
 npm run build
-npm run server
+
+# 2. 部署（含静态资源，在 worker/ 目录执行）
+cd worker
+wrangler deploy
 ```
 
-服务端会同时提供 API 和前端静态页面。其他电脑、手机浏览器访问服务器地址，登录同一账号即可自动同步。
+- 需先配置 `CLOUDFLARE_API_TOKEN` 环境变量（Worker 权限 + `Workers D1: Edit`）
+- 自定义域名在 Cloudflare 后台「Workers → 你的 worker → 设置 → 域」绑定（本项目为 `todo.aebuiyke.xyz`）
+- 数据库迁移：`wrangler d1 execute light-todo --remote --file=migrations/xxx.sql`
 
-公司电脑是否能访问取决于网络策略；如果公司禁止外部站点，可以部署到公司内网服务器。
+> 历史的一键部署配置（Docker / Render / Railway）已随 v3 迁移到 Cloudflare 而停用，仓库中相关文件仅作存档。
 
-## 一键部署平台
+## 🎹 快捷键
 
-项目已内置部署配置：
+| 快捷键 | 作用 |
+|---|---|
+| `Ctrl+Shift+Alt+P` | 呼出个人空间解锁 |
+| `Ctrl+Shift+Alt+Esc` | 紧急隐藏并退回工作模式 |
+| `::vault` | 在添加弹窗标题输入，直接呼出个人空间解锁 |
+| 品牌名旁小圆点 | 隐藏式切换工作 / 个人空间 |
 
-- Docker：`docker compose up --build`
-- Render：推送 GitHub 后选择 Docker，自动读取 `render.yaml`
-- Railway：选择仓库后自动读取 `railway.json`
-
-部署后即可获得长期 HTTPS 网址；详细说明见 `PROJECT_HANDOFF.md`。
-
-## 数据与隐私
-
-- 工作区数据使用账号密码派生的密钥做 AES-GCM 加密，服务器只保存密文。
-- 忘记账号密码无法找回数据，请妥善保存。
-- 个人模式仍需要本地访问码解锁，避免旁边人直接看到个人任务。
-- WebDAV 手动同步仍保留在侧栏"同步"中，可作为高级选项；日常多设备使用推荐账号登录。
-
-## 快捷键
-
-- `Ctrl+Shift+Alt+P`：呼出个人模式解锁
-- `Ctrl+Shift+Alt+Esc`：紧急隐藏并回到工作模式
-- 弹窗标题输入 `::vault` 或 `#个人`：呼出个人模式解锁
-- 顶部品牌名旁的小圆点：隐藏式切换工作 / 个人空间
-
-## 目录结构
+## 📁 目录结构
 
 ```text
-src/                  React 前端
-  components/         界面组件
-  lib/                存储、账号、加密、同步
-server/               Node 后端（账号、加密工作区存储、自动同步 API）
-src-tauri/            Tauri 桌面壳
+src/                  React 前端（TypeScript）
+  components/         界面组件（任务/备忘抽屉、Markdown、PinGate、LoginGate…）
+  lib/                账号、加密、同步、访问码、Markdown、自然语言解析
+worker/               Cloudflare Worker 后端（/api/* + D1）
+  src/                Worker 逻辑
+  migrations/         D1 数据库迁移
+  wrangler.toml       部署配置（[assets] 静态托管 dist/）
+server/               历史 Node 后端（本地开发 / 存档）
+src-tauri/            Tauri 桌面壳（存档）
 ```
+
+## 🗓️ 版本历史
+
+| 版本 | 日期 | 内容 |
+|---|---|---|
+| v1 | — | 本地单机版（Tauri 桌面） |
+| v2 | — | 多设备 + 自然语言 + 循环任务 |
+| v3 | 2026-08-19 | 迁移 Cloudflare Workers + D1，端到端加密上线，账号体系 |
+| v3.1 | 2026-08-20 | 任务↔备忘双向关联 + 备忘录 Markdown/标签 + 个人空间账号化重构 + 3 个数据丢失 bug 修复 |
+
+## 📜 开源协议
+
+本项目为个人作品。部署、二次开发请遵守所引用开源依赖的许可协议。
+
+---
+
+*Made with ❤️ — 轻待办 Light Todo*
