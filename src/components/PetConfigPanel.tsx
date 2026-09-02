@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { Mode, PetBehaviorFlag, PetCoatKey, PetSkin } from "../types";
 import { BloubAvatar } from "./BloubAvatar";
@@ -8,21 +8,20 @@ import { COAT_PALETTES } from "../lib/petPalettes";
 import { clearPetDock } from "../lib/petSkin";
 
 /**
- * 轻宜「皮肤与行为」面板（bloub 版）。
- * - 形态馆：展示 bloub 全部形变态（圆球/蛋/六边形/三角/星爆/彗星/感叹号/思考/睡觉…），点某态试玩。
- * - 皮肤：8 coat swatch。
- * - 行为/位置/大小。
+ * 轻宜「动作与设置」面板。
+ * - 形态馆：展示 bloub 全部形变态，单击选+预览，双击应用到主角色并关闭，另有「随机连播」循环演示。
+ * - 皮肤：8 coat swatch / 大小 / 位置 / 行为。
  */
 export interface PetConfigPanelProps {
   mode: Mode;
   skin: PetSkin;
   onSkinChange: (patch: Partial<PetSkin>) => void;
-  /** 让主角色试玩一个 bloub 形变态 */
+  /** 让主角色试玩/应用一个 bloub 形变态 */
   onTryExpression: (id: string) => void;
   onClose: () => void;
 }
 
-const COATS: PetCoatKey[] = ["teal", "amber", "azure", "coral", "violet", "rose", "graphite", "midnight"];
+const COATS: PetCoatKey[] = ["teal", "amber", "azure", "coral", "violet", "rose", "graphite", "midnight", "mono"];
 const BEHAVIOR_LABELS: Record<string, string> = {
   breathe: "呼吸",
   blink: "眨眼",
@@ -41,6 +40,42 @@ export function PetConfigPanel({
   onClose,
 }: PetConfigPanelProps) {
   const [tab, setTab] = useState<"shapes" | "coat">("shapes");
+  /** 形态馆：当前选中(用于大预览)，null=没选 */
+  const [selected, setSelected] = useState<StateId | null>(null);
+  /** 随机连播是否运行 */
+  const [shuffling, setShuffling] = useState(false);
+  const shuffleTimer = useRef<number | null>(null);
+
+  // 关闭连播时清理定时器
+  useEffect(() => {
+    return () => {
+      if (shuffleTimer.current) window.clearTimeout(shuffleTimer.current);
+    };
+  }, []);
+
+  function applyShape(id: StateId) {
+    onTryExpression(id);
+    onClose();
+  }
+
+  function toggleShuffle() {
+    if (shuffling) {
+      // 停止连播 → 回到主宠 idle
+      setShuffling(false);
+      if (shuffleTimer.current) window.clearTimeout(shuffleTimer.current);
+      onTryExpression("idle");
+      setSelected(null);
+      return;
+    }
+    setShuffling(true);
+    const step = () => {
+      const pick = BLOUB_STATES[Math.floor(Math.random() * BLOUB_STATES.length)].id;
+      setSelected(pick);
+      onTryExpression(pick);
+      shuffleTimer.current = window.setTimeout(step, 1500);
+    };
+    step();
+  }
 
   return (
     <div className="pet-config">
@@ -70,20 +105,57 @@ export function PetConfigPanel({
       </div>
 
       {tab === "shapes" ? (
-        <div className="pet-expr-grid">
-          {BLOUB_STATES.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="pet-expr-cell"
-              onClick={() => onTryExpression(s.id)}
-              title={`${s.label} (${s.id})`}
-            >
-              <BloubAvatar state={s.id} coat={skin.coat} size={52} frozenAt={0.5} />
-              <span>{s.label}</span>
-            </button>
-          ))}
-        </div>
+        <>
+          {/* 大预览 */}
+          <div className="pet-config-preview">
+            <BloubAvatar
+              state={selected ?? "idle"}
+              coat={skin.coat}
+              size={84}
+              frozenAt={shuffling ? undefined : 0.5}
+            />
+            <div>
+              <b>{BLOUB_STATES.find((s) => s.id === (selected ?? "idle"))?.label ?? "待机"}</b>
+              <span>
+                {selected
+                  ? shuffling
+                    ? "正在随机连播…"
+                    : "双击格子应用到轻宜 · 单击随机连播"
+                  : "点击格子预览，双击应用到轻宜"}
+              </span>
+              {!shuffling && (
+                <button type="button" className="pet-try-btn" onClick={toggleShuffle}>
+                  🎲 随机连播
+                </button>
+              )}
+              {shuffling && (
+                <button type="button" className="pet-try-btn secondary" onClick={toggleShuffle}>
+                  ⏹ 停止
+                </button>
+              )}
+            </div>
+          </div>
+          {/* 形变格 */}
+          <div className="pet-expr-grid">
+            {BLOUB_STATES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`pet-expr-cell ${selected === s.id ? "active" : ""}`}
+                onClick={() => {
+                  setSelected(s.id);
+                  onTryExpression(s.id);
+                }}
+                onDoubleClick={() => applyShape(s.id)}
+                title={`${s.label} · 单击预览 / 双击应用`}
+              >
+                <BloubAvatar state={s.id} coat={skin.coat} size={52} frozenAt={0.5} />
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="pet-config-tip">单击看效果 · 双击立即应用并关闭 · 右上 🎲 随机连播</p>
+        </>
       ) : (
         <div className="pet-skin-panel">
           <label className="pet-set-label">身体配色</label>
@@ -144,6 +216,14 @@ export function PetConfigPanel({
 
           <label className="pet-set-label">动画与互动</label>
           <div className="pet-behaviors">
+            <button
+              type="button"
+              className={skin.chatter !== false ? "on" : ""}
+              onClick={() => onSkinChange({ chatter: skin.chatter === false })}
+              title="桌宠会主动找你说话/逗你玩；关掉后变纯桌宠，只在你点开对话框时才聊天"
+            >
+              {skin.chatter !== false ? "主动搭话" : "主动搭话（关）"}
+            </button>
             {Object.entries(BEHAVIOR_LABELS).map(([flag, label]) => {
               const f = flag as PetBehaviorFlag;
               const on = skin.behaviors.includes(f);
@@ -165,6 +245,38 @@ export function PetConfigPanel({
               );
             })}
           </div>
+
+          <label className="pet-set-label">闲置时随机展示哪些动作（可多选，勾选才会随机变）</label>
+          <div className="pet-behaviors">
+            {BLOUB_STATES.map((s) => {
+              const pool = skin.autoStates ?? [];
+              const on = pool.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={on ? "on" : ""}
+                  onClick={() =>
+                    onSkinChange({
+                      autoStates: on
+                        ? pool.filter((x) => x !== s.id)
+                        : [...pool, s.id],
+                    })
+                  }
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className={(skin.autoStates ?? []).length === 0 ? "on" : ""}
+              onClick={() => onSkinChange({ autoStates: [] })}
+            >
+              不自动
+            </button>
+          </div>
+          <p className="pet-config-tip">桌宠空闲时会从勾选的形态里随机变换，展示不同动作</p>
         </div>
       )}
     </div>

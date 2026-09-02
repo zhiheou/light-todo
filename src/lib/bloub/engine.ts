@@ -149,6 +149,8 @@ export class BotEngine {
   private look: Look = NO_LOOK
   private lookPrev: Look = NO_LOOK
   private lookAt = -10
+  /** 轻待办扩展：是否允许自活跃动（眨眼/眼神漂移/呼吸）。默认全开。 */
+  private live = { blink: true, breathe: true }
   /** duree de rattrapage en cours ; voir `LOOK_MORPH`, sa valeur par defaut */
   private lookMorph = 0.24
 
@@ -241,6 +243,10 @@ export class BotEngine {
    * setter horodate, jamais par une variable lue pendant `sample`, sinon le
    * moteur cesse d'etre une fonction pure du temps.
    */
+  setLive(live: { blink?: boolean; breathe?: boolean }) {
+    if (live.blink !== undefined) this.live.blink = live.blink
+    if (live.breathe !== undefined) this.live.breathe = live.breathe
+  }
   setLook(look: Look | null, now: number, morph = BotEngine.LOOK_MORPH) {
     /*
      * Une cible non finie est refusee. Le moteur GARDE la derniere : un `NaN`
@@ -460,7 +466,11 @@ export class BotEngine {
     // --- vie au repos -----------------------------------------------------
     const alive = pose.eyeAlpha > 0.01
     const look = this.lookAtTime(now)
-    const life = liveliness(now, { wander: alive ? look.wander : 0, blink: alive })
+    const life = liveliness(now, {
+      wander: alive ? look.wander : 0,
+      blink: alive && this.live.blink,
+      float: this.live.breathe,
+    })
 
     const gaze = {
       // Les deux visees REMPLACENT celles de la pose au lieu de s'y ajouter (voir

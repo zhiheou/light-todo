@@ -22,6 +22,8 @@ export const COAT_PALETTES: Record<PetCoatKey, CoatPalette> = {
   rose: { main: "#e56a8f", hi: "#f6a9c0", cheek: "#f6bdd0", line: "#8c2f4f" },
   graphite: { main: "#5c6b7a", hi: "#a9b6c2", cheek: "#bdc7d1", line: "#2a3440" },
   midnight: { main: "#39426b", hi: "#8b93bb", cheek: "#9ea4c8", line: "#161b33" },
+  /** 黑白默认：墨黑身体 + 纸白挖眼（呼应 bloub 原版黑白） */
+  mono: { main: "#22252a", hi: "#5a5f68", cheek: "#e8eaf0", line: "#111318" },
 };
 
 export interface ShapePreset {

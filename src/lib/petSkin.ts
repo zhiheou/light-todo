@@ -12,18 +12,25 @@ const ALL_COATS: PetCoatKey[] = [
   "rose",
   "graphite",
   "midnight",
+  "mono",
 ];
 
 const ALL_BEHAVIORS = ["breathe", "blink", "look", "drift", "idleActs", "draggable", "follow"];
 
-/** 工作默认晨青 / 个人默认暮暖；position 桌面 corner，移动 bottom 由组件层改 */
-export function defaultPetSkin(mode: "work" | "personal"): PetSkin {
+/** 默认黑白（mono）—— 所有新用户默认黑白；闲置默认随机展示全部动作形态 */
+export function defaultPetSkin(): PetSkin {
   return {
     shape: "blob",
-    coat: mode === "work" ? "teal" : "amber",
-    size: "m",
+    coat: "mono",
+    size: "l",
     position: "corner",
     behaviors: ["breathe", "blink", "look", "drift", "idleActs", "draggable", "follow"],
+    autoStates: [
+      "idle", "egg", "hexagon", "play", "orbit", "burst", "comet",
+      "exclaim", "alert", "thinking", "wide", "wink",
+    ],
+    hidden: false,
+    chatter: true,
   };
 }
 
@@ -42,12 +49,19 @@ export function loadPetSkin(mode: "work" | "personal"): PetSkin {
     const raw = localStorage.getItem(`${SKIN_KEY}.${mode}`);
     if (raw) {
       const parsed = JSON.parse(raw) as PetSkin;
-      if (isValidSkin(parsed)) return parsed;
+      if (isValidSkin(parsed)) {
+        // 旧皮肤无 autoStates → 补默认（全勾），让老用户也有随机动作
+        if (!Array.isArray(parsed.autoStates)) {
+          const d = defaultPetSkin();
+          return { ...parsed, autoStates: d.autoStates };
+        }
+        return parsed;
+      }
     }
   } catch {
     /* fallthrough */
   }
-  return defaultPetSkin(mode);
+  return defaultPetSkin();
 }
 
 export function savePetSkin(skin: PetSkin, mode: "work" | "personal"): void {

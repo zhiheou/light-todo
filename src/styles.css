@@ -3712,3 +3712,92 @@ html[data-card-style="colorful"] .priority.p4 {
   color: #fff;
   font-size: 12px;
 }
+
+/* ---- v3.7 已保存浮动提示（跟随桌宠） ---- */
+.pet-saved-hint {
+  position: fixed;
+  z-index: 90;
+  transform: translate(-30%, -100%);
+  background: var(--teal, #0f766e);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, 0.22);
+  animation: pet-saved-pop 0.25s ease-out;
+  pointer-events: none;
+  white-space: nowrap;
+}
+@keyframes pet-saved-pop {
+  from { opacity: 0; transform: translate(-30%, -80%) scale(0.9); }
+  to { opacity: 1; transform: translate(-30%, -100%) scale(1); }
+}
+
+/* v3.7 形态馆增强 */
+.pet-expr-cell.active {
+  border-color: var(--teal, #0f766e) !important;
+  background: var(--teal-soft, #e6f4f2) !important;
+  box-shadow: 0 0 0 2px var(--teal-soft, #e6f4f2);
+}
+.pet-config-tip {
+  margin: 8px 2px 0;
+  font-size: 11px;
+  color: var(--muted, #5d6b7a);
+  text-align: center;
+}
+.pet-try-btn.secondary {
+  background: var(--surface-2, #f6f8fa);
+  color: var(--text-2, #5d6b7a);
+  border: 1px solid var(--border, #d8dfe6);
+}
+
+/* v3.7 隐藏后召回入口 */
+.pet-summon {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8dfe6);
+  box-shadow: 0 4px 14px rgba(16, 24, 40, 0.2);
+  display: grid;
+  place-items: center;
+  z-index: 59;
+  cursor: pointer;
+  animation: pet-summon-bob 2.4s ease-in-out infinite;
+}
+.pet-summon:hover { transform: scale(1.1); }
+@keyframes pet-summon-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* v3.7 灵动小字（头顶气泡） */
+.pet-microtip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: #17233a;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 5px 10px;
+  border-radius: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 70;
+  box-shadow: 0 4px 12px rgba(16,24,40,.25);
+}
+.pet-microtip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #17233a;
+}

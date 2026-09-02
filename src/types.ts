@@ -19,7 +19,8 @@ export type PetCoatKey =
   | "violet"
   | "rose"
   | "graphite"
-  | "midnight";
+  | "midnight"
+  | "mono";
 export type PetSizeKey = "s" | "m" | "l";
 /** free=桌面自由拖拽 / bottom=移动端底部停靠 / corner=右下角(默认) */
 export type PetPosition = "free" | "bottom" | "corner";
@@ -38,6 +39,15 @@ export interface PetSkin {
   size: PetSizeKey;
   position: PetPosition;
   behaviors: PetBehaviorFlag[];
+  /**
+   * 闲置随机动作池：勾选了哪些 bloub 形变态，桌宠就会在空闲时从中随机循环展示。
+   * 空数组 = 不做随机展示（只待机）。
+   */
+  autoStates?: string[];
+  /** 用户主动隐藏了桌宠（持久化，换账号/换空间各自独立） */
+  hidden?: boolean;
+  /** 主动搭话开关（闲置时小字问候/逗你）默认开 */
+  chatter?: boolean;
 }
 
 /** 桌面自由拖拽后停靠位置（px，clamp 视口内）；仅 free 模式使用 */

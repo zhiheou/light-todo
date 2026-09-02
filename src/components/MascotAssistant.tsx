@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { Send, X } from "lucide-react";
 import type { Mode, MascotMood, PetExpressionId, PetSkin, Task } from "../types";
 import type { StateId } from "../lib/bloub/states";
@@ -45,6 +46,34 @@ const PERSONA: Record<Mode, { name: string; label: string; sub: string }> = {
 
 const SUGGESTIONS = ["帮我记个待办：明天下午4点开会", "把这段话记到备忘录：买牛奶", "今天有什么安排？"];
 
+const PANEL_W = 320;
+
+/**
+ * 聊天气泡锚在桌宠右上方；桌宠靠右时自动往左收；桌宠靠底时往上弹。
+ * petPos 缺省时退回右下角。
+ */
+function panelStyle(
+  petPos: { x: number; y: number; w: number; h: number } | null,
+  open: boolean,
+): CSSProperties {
+  if (!open) return {};
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const margin = 12;
+  if (!petPos) return { right: margin, bottom: 92 };
+  // 期望面板锚在宠物右上：面板 left = 宠物右边缘 + margin
+  let left = petPos.x + petPos.w + margin;
+  // 若右边放不下，放左边
+  if (left + PANEL_W > vw - margin) left = petPos.x - PANEL_W - margin;
+  // 仍放不下（太窄）→ 顶部对齐宠物
+  left = Math.max(margin, Math.min(left, vw - PANEL_W - margin));
+  const top = Math.max(margin, petPos.y);
+  const bottomPad = 76; // 移动端底栏
+  const maxTop = vh - bottomPad - 300;
+  const topClamped = Math.min(top, Math.max(margin, maxTop));
+  return { left, top: topClamped, right: "auto", bottom: "auto" };
+}
+
 /** 聊天瞬时 mood → 长期表情映射（轻宜主导表情） */
 function moodToExpr(mood: MascotMood): PetExpressionId {
   switch (mood) {
@@ -79,6 +108,14 @@ export default function MascotAssistant({
   const [unread, setUnread] = useState(0);
   /** 配置面板：形态/皮肤 */
   const [configOpen, setConfigOpen] = useState(false);
+  /** 已保存提示 */
+  const [savedHint, setSavedHint] = useState<string | null>(null);
+  const savedTimer = useRef<number | null>(null);
+  const showSaved = useCallback((msg: string) => {
+    setSavedHint(msg);
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSavedHint(null), 1600);
+  }, []);
   // 皮肤按空间分仓：工作=晨青 / 个人=暮暖（可各自自定义）
   const [skins, setSkins] = useState<Record<Mode, PetSkin>>(() => ({
     work: loadPetSkin("work"),
@@ -95,10 +132,21 @@ export default function MascotAssistant({
     },
     [mode],
   );
+  /** 显示/隐藏桌宠（持久化，按空间独立） */
+  const setPetHidden = useCallback(
+    (hidden: boolean) => {
+      setSkinForMode({ hidden });
+      if (!hidden) setPreviewState(null);
+    },
+    [setSkinForMode],
+  );
   const [act, setAct] = useState<{ id: PetExpressionId; key: number } | null>(null);
-  const [petHidden, setPetHidden] = useState(false);
+  /** 桌宠是否隐藏（持久化在 skin.hidden，按空间独立） */
+  const petHidden = !!skin.hidden;
   /** 形态馆试玩：显示一个 bloub 形变态 */
   const [previewState, setPreviewState] = useState<StateId | null>(null);
+  /** 桌宠当前位置（聊天气泡跟随） */
+  const [petPos, setPetPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const seenNudge = useRef<Set<number>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -274,9 +322,13 @@ export default function MascotAssistant({
       const pick = ids[Math.floor(Math.random() * ids.length)];
       triggerAct(pick);
     } else if (action === "hide") {
+      // 隐藏桌宠时一并收起聊天/设置面板，避免"桌宠没了对话框还开着"
       setPetHidden(true);
-    } else if (action === "studio" || action === "settings") {
-      // 形态/皮肤面板
+      setOpen(false);
+      setConfigOpen(false);
+      setPreviewState(null);
+    } else if (action === "config") {
+      // 动作与设置面板（已合并，不再分"表情动作馆/皮肤与行为"两个入口）
       setConfigOpen(true);
     }
   };
@@ -300,12 +352,36 @@ export default function MascotAssistant({
             const ids: PetExpressionId[] = ["dance", "happy", "excited", "love", "celebrate"];
             triggerAct(ids[Math.floor(Math.random() * ids.length)]);
           }}
+          onHitWall={() => {
+            // 撞墙"哎哟"
+            const ouch: PetExpressionId[] = ["surprised", "dizzy", "nope"];
+            triggerAct(ouch[Math.floor(Math.random() * ouch.length)]);
+          }}
+          onPosition={setPetPos}
         />
       )}
 
-      {/* 聊天面板 */}
+      {/* 桌宠被隐藏时：右下角留一个"召回"入口 */}
+      {petHidden && (
+        <button
+          type="button"
+          className={`pet-summon mascot-${mode}`}
+          onClick={() => setPetHidden(false)}
+          title="让轻宜回来"
+          aria-label="召回轻宜"
+        >
+          <MascotAvatar mood="idle" size={30} className={`mascot-fab-avatar mascot-${mode}`} />
+        </button>
+      )}
+
+      {/* 聊天面板：锚定在桌宠旁（右上方），超出右缘自动往左收 */}
       {open && (
-        <div className={`mascot-panel mascot-${mode}`} role="dialog" aria-label={`与${persona.name}对话`}>
+        <div
+          className={`mascot-panel mascot-${mode}`}
+          role="dialog"
+          aria-label={`与${persona.name}对话`}
+          style={panelStyle(petPos, open)}
+        >
           <div className="mascot-panel-head">
             <MascotAvatar mood={thinking ? "thinking" : mood} size={34} className={`mascot-head-avatar mascot-${mode}`} />
             <div className="mascot-head-id">
@@ -375,12 +451,15 @@ export default function MascotAssistant({
 
       {/* 轻宜 表情动作馆 / 皮肤行为 配置面板 */}
       {configOpen && (
-        <div className="pet-config-overlay" onClick={() => setConfigOpen(false)}>
+        <div className="pet-config-overlay" onClick={() => { setPreviewState(null); setConfigOpen(false); }}>
           <div onClick={(e) => e.stopPropagation()}>
             <PetConfigPanel
               mode={mode}
               skin={skin}
-              onSkinChange={setSkinForMode}
+              onSkinChange={(patch) => {
+                setSkinForMode(patch);
+                showSaved("已保存 · 轻宜");
+              }}
               onTryExpression={(id) => {
                 // 形态馆试玩：把主角色切成该 bloub 形变态（持续显示）
                 setPreviewState(id as StateId);
@@ -391,6 +470,13 @@ export default function MascotAssistant({
               }}
             />
           </div>
+        </div>
+      )}
+
+      {/* 已保存浮动提示（跟随桌宠） */}
+      {savedHint && (
+        <div className="pet-saved-hint" style={{ left: (petPos?.x ?? 0), top: (petPos?.y ?? 0) - 20 }}>
+          ✓ {savedHint}
         </div>
       )}
     </>
