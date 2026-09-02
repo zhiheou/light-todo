@@ -1,0 +1,101 @@
+import type { PetCoatKey, PetDock, PetSkin } from "../types";
+
+const SKIN_KEY = "lighttodo:pet-skin:v1";
+const DOCK_KEY = "lighttodo:pet-dock:v1";
+
+const ALL_COATS: PetCoatKey[] = [
+  "teal",
+  "amber",
+  "azure",
+  "coral",
+  "violet",
+  "rose",
+  "graphite",
+  "midnight",
+];
+
+const ALL_BEHAVIORS = ["breathe", "blink", "look", "drift", "idleActs", "draggable", "follow"];
+
+/** 工作默认晨青 / 个人默认暮暖；position 桌面 corner，移动 bottom 由组件层改 */
+export function defaultPetSkin(mode: "work" | "personal"): PetSkin {
+  return {
+    shape: "blob",
+    coat: mode === "work" ? "teal" : "amber",
+    size: "m",
+    position: "corner",
+    behaviors: ["breathe", "blink", "look", "drift", "idleActs", "draggable", "follow"],
+  };
+}
+
+function isValidSkin(v: unknown): v is PetSkin {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  const coatOk = typeof s.coat === "string" && (ALL_COATS as string[]).includes(s.coat);
+  const shapeOk = typeof s.shape === "string" && ["ball", "egg", "blob", "cloud"].includes(s.shape);
+  const sizeOk = typeof s.size === "string" && ["s", "m", "l"].includes(s.size);
+  const posOk = typeof s.position === "string" && ["free", "bottom", "corner"].includes(s.position);
+  return coatOk && shapeOk && sizeOk && posOk && Array.isArray(s.behaviors);
+}
+
+export function loadPetSkin(mode: "work" | "personal"): PetSkin {
+  try {
+    const raw = localStorage.getItem(`${SKIN_KEY}.${mode}`);
+    if (raw) {
+      const parsed = JSON.parse(raw) as PetSkin;
+      if (isValidSkin(parsed)) return parsed;
+    }
+  } catch {
+    /* fallthrough */
+  }
+  return defaultPetSkin(mode);
+}
+
+export function savePetSkin(skin: PetSkin, mode: "work" | "personal"): void {
+  try {
+    localStorage.setItem(`${SKIN_KEY}.${mode}`, JSON.stringify(skin));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export function coatForMode(mode: "work" | "personal"): PetCoatKey {
+  return mode === "work" ? "teal" : "amber";
+}
+
+/** 合并一次皮肤补丁 + 校验行为白名单 */
+export function patchSkin(skin: PetSkin, patch: Partial<PetSkin>): PetSkin {
+  const next = { ...skin, ...patch };
+  if (patch.behaviors) {
+    next.behaviors = patch.behaviors.filter((b) => (ALL_BEHAVIORS as string[]).includes(b));
+  }
+  return next;
+}
+
+export function loadPetDock(): PetDock | null {
+  try {
+    const raw = localStorage.getItem(DOCK_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as PetDock;
+    if (typeof v?.x === "number" && typeof v?.y === "number") return v;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function savePetDock(dock: PetDock | null): void {
+  try {
+    if (dock) localStorage.setItem(DOCK_KEY, JSON.stringify(dock));
+    else localStorage.removeItem(DOCK_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearPetDock(): void {
+  try {
+    localStorage.removeItem(DOCK_KEY);
+  } catch {
+    /* ignore */
+  }
+}

@@ -3487,3 +3487,228 @@ html[data-card-style="colorful"] .priority.p4 {
     animation: none !important;
   }
 }
+
+/* ============ v3.6 轻宜桌面宠物 ============ */
+.pet-shell {
+  position: fixed;
+  z-index: 60;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.pet-shell:active {
+  cursor: grabbing;
+}
+.pet-shell.pet-free {
+  /* 由 JS 的 left/top 控制 */
+}
+.pet-shell.pet-corner {
+  right: 18px;
+  bottom: 18px;
+}
+.pet-shell.pet-bottom {
+  /* 由 JS 的 left:50% translateX 控制 */
+}
+
+.pet-work {
+  filter: drop-shadow(0 4px 8px rgba(15, 118, 110, 0.18));
+}
+.pet-personal {
+  filter: drop-shadow(0 4px 8px rgba(194, 65, 12, 0.2));
+}
+
+.pet-avatar {
+  display: block;
+  /* 呼吸（在 avatar 上加，而非 svg 内部，避免 path 抖动） */
+  animation: pet-breathe 3.4s ease-in-out infinite;
+  transform-origin: 50% 60%;
+}
+.pet-shell:hover .pet-avatar {
+  animation-duration: 2.6s;
+}
+@keyframes pet-breathe {
+  0%, 100% { transform: scale(1, 1) translateY(0); }
+  50% { transform: scale(1.02, 0.985) translateY(-1px); }
+}
+
+/* 未读角标 */
+.pet-unread {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--surface, #fff);
+  box-sizing: content-box;
+  pointer-events: none;
+}
+
+/* 右键菜单 */
+.pet-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 150px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(16, 24, 40, 0.2);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
+.pet-menu button {
+  text-align: left;
+  padding: 8px 11px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text, #1a2430);
+}
+.pet-menu button:hover {
+  background: var(--bg-2, #f6f8fa);
+}
+.pet-menu button.danger {
+  color: var(--danger, #dc2626);
+}
+.pet-menu-sep {
+  height: 1px;
+  background: var(--border, #d8dfe6);
+  margin: 4px 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-avatar {
+    animation: none !important;
+  }
+}
+
+/* ---- 轻宜 配置面板（表情馆 / 皮肤） ---- */
+.pet-config-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.pet-config {
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(78vh, 560px);
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 12px 40px rgba(16, 24, 40, 0.24);
+}
+.pet-config-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border, #d8dfe6);
+}
+.pet-config-head b { font-size: 15px; }
+.pet-config-head span { font-size: 12px; color: var(--muted, #5d6b7a); flex: 1; }
+.pet-config-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0;
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-2, #f6f8fa);
+}
+.pet-config-tabs button {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--muted, #5d6b7a);
+}
+.pet-config-tabs button.active {
+  background: var(--surface, #fff);
+  color: var(--text, #1a2430);
+  font-weight: 600;
+}
+.pet-expr-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pet-expr-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 10px;
+  background: var(--bg-2, #f6f8fa);
+  font-size: 11px;
+  color: var(--text-2, #5d6b7a);
+}
+.pet-expr-cell:hover { border-color: var(--primary, #8b91e8); }
+.pet-skin-panel { display: flex; flex-direction: column; gap: 4px; }
+.pet-set-label { font-size: 12px; color: var(--muted, #5d6b7a); margin-top: 8px; }
+.pet-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-swatches button {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.pet-swatches button.active { border-color: var(--text, #1a2430); }
+.pet-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-chips button, .pet-behaviors button {
+  padding: 4px 11px;
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 999px;
+  background: var(--bg-2, #f6f8fa);
+  font-size: 12px;
+  color: var(--text-2, #5d6b7a);
+}
+.pet-chips button.active, .pet-behaviors button.on {
+  border-color: var(--teal, #0f766e);
+  background: var(--teal-soft, #e6f4f2);
+  color: var(--teal, #0f766e);
+  font-weight: 600;
+}
+.pet-behaviors { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-reset-pos {
+  margin-top: 8px;
+  padding: 5px 12px;
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted, #5d6b7a);
+  align-self: flex-start;
+}
+.pet-config-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: var(--bg-2, #f6f8fa);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.pet-config-preview > div { display: flex; flex-direction: column; gap: 2px; }
+.pet-config-preview b { font-size: 14px; }
+.pet-config-preview span { font-size: 12px; color: var(--muted, #5d6b7a); }
+.pet-try-btn {
+  margin-top: 4px;
+  padding: 3px 12px;
+  align-self: flex-start;
+  border-radius: 7px;
+  background: var(--teal, #0f766e);
+  color: #fff;
+  font-size: 12px;
+}

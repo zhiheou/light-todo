@@ -4,8 +4,168 @@ export type SortMode = "priority" | "due";
 export type Priority = 1 | 2 | 3 | 4;
 /** 今日页展示形态 */
 export type TodayMode = "list" | "dimension" | "timeline" | "schedule";
-/** 吉祥物情绪态 */
+
+/** v3.5 遗留：仅指聊天/暂停用"短时刻"（持续 ≤5s）。v3.6 起长期表情由 PetExpressionId 取代。 */
 export type MascotMood = "idle" | "happy" | "thinking" | "reminding" | "listening";
+
+/* ================= v3.6 吉祥物「轻宜」Pet 类型 ================= */
+
+export type PetBodyShape = "ball" | "egg" | "blob" | "cloud";
+export type PetCoatKey =
+  | "teal"
+  | "amber"
+  | "azure"
+  | "coral"
+  | "violet"
+  | "rose"
+  | "graphite"
+  | "midnight";
+export type PetSizeKey = "s" | "m" | "l";
+/** free=桌面自由拖拽 / bottom=移动端底部停靠 / corner=右下角(默认) */
+export type PetPosition = "free" | "bottom" | "corner";
+export type PetBehaviorFlag =
+  | "breathe"
+  | "blink"
+  | "look"
+  | "drift"
+  | "idleActs"
+  | "draggable"
+  | "follow";
+
+export interface PetSkin {
+  shape: PetBodyShape;
+  coat: PetCoatKey;
+  size: PetSizeKey;
+  position: PetPosition;
+  behaviors: PetBehaviorFlag[];
+}
+
+/** 桌面自由拖拽后停靠位置（px，clamp 视口内）；仅 free 模式使用 */
+export interface PetDock {
+  x: number;
+  y: number;
+}
+
+/** 表情分段 */
+export type PetCategory = "life" | "emotion" | "work";
+
+/** 眼睛形态 id */
+export type PetEyeStyle =
+  | "round"        // 圆眼
+  | "happyArc"     // 弯眼 ^
+  | "sleepLine"    // 闭线
+  | "sadArc"       // 难过弧
+  | "cryArc"       // 哭闭(带泪)
+  | "closed"       // 完全闭
+  | "squint"       // 眯
+  | "openBig"      // 圆睁大
+  | "dot"          // 小点
+  | "heart"        // 心形
+  | "star"         // 星星
+  | "winkL" | "winkR" // 单眼眨
+  | "half"         // 半闭(疲惫)
+  | "tense"        // 怒/紧
+  | "cross"        // X 眼
+  | "blank"        // 呆滞无光
+  | "zzz";         // 睡死(眼全无)
+
+export type PetMouthId =
+  | "smile"
+  | "open"
+  | "wow"
+  | "oh"
+  | "flat"
+  | "frown"
+  | "grim"
+  | "wavy"
+  | "cry"
+  | "smirk"
+  | "grimace"
+  | "line"
+  | "kiss"
+  | "tongue"
+  | "annoyed"
+  | "teeth";
+
+export interface PetEyeSpec {
+  style: PetEyeStyle;
+  /** 瞳孔/虹膜缩放 0.4..1.4 */
+  irisScale?: number;
+  /** 归一注视偏移 -1..1（引擎还会叠 hover gaze） */
+  look?: { dx: number; dy: number };
+  /** false = 不参与随机眨眼（sleep/closed 等） */
+  blinkMask?: boolean;
+}
+
+export interface PetMouthSpec {
+  kind: PetMouthId;
+  /** 嘴缩放 */
+  scale?: number;
+}
+
+/** 叠加物/特效元素 */
+export interface PetExtras {
+  blush?: boolean;
+  sweat?: boolean;
+  exclaim?: boolean;   // 头顶 !
+  crossMark?: boolean; // 头顶 ×
+  stars?: number;      // 星星数
+  heart?: boolean;
+  /** 特效层 id */
+  fx?: "orbit" | "zzz" | "confetti" | "sparkle" | "typeDots";
+}
+
+/** 一次性动作关键帧（供引擎按时间播放） */
+export interface PetMotion {
+  /** t 为 0..1 的归一进度；插值 body 缩放/位移/旋转 */
+  keyframes?: Array<{ t: number; x?: number; y?: number; sx?: number; sy?: number; rotate?: number }>;
+  loop?: boolean;
+  /** 播一次后回到 idle（默认 true） */
+  once?: boolean;
+  /** 每拍时长 ms（默认 100） */
+  tick?: number;
+}
+
+/** 数据驱动的表情定义（渲染/状态机只认 id） */
+export interface PetExpressionDef {
+  id: string;
+  category: PetCategory;
+  nameZh: string;
+  nameEn: string;
+  eyes: PetEyeSpec;
+  mouth: PetMouthSpec;
+  extras?: PetExtras;
+  motion?: PetMotion;
+  /** 头部倾角（度） */
+  tilt?: number;
+  /** 是否唤醒后回到 idle（sleep/wake 等用） */
+  settleIdle?: boolean;
+}
+
+export type PetExpressionId = PetExpressionDef["id"];
+
+/** 引擎一帧输出（AvatarV2 渲染唯一输入） */
+export interface PetFrame {
+  /** 当前主导表情 */
+  expr: PetExpressionId;
+  /** 身体路径（极坐标或覆盖层） */
+  bodyPath: string;
+  /** 身体横向缩放（squash 用） */
+  squashX: number;
+  squashY: number;
+  /** 旋转（度） */
+  rotate: number;
+  /** 位移偏移（拖动中） */
+  dy: number;
+  eyes: PetEyeSpec;
+  /** 眨眼闭合度 0..1（1=闭） */
+  blink: number;
+  mouth: PetMouthSpec;
+  extras: PetExtras | null;
+  /** 一次性动作进度 0..1（播完回 idle） */
+  actT: number | null;
+  ts: number;
+}
 
 export type RepeatFreq = "daily" | "weekday" | "weekly" | "monthly" | "interval";
 
