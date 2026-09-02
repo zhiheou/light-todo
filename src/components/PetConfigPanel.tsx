@@ -1,31 +1,25 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
-import type { Mode, PetBehaviorFlag, PetCoatKey, PetExpressionId, PetSkin } from "../types";
-import { AvatarV2 } from "./AvatarV2";
-import { staticFrame } from "../lib/petEngine";
-import {
-  PET_EXPRESSIONS,
-  PET_EXPRESSIONS_BY_CATEGORY,
-} from "../lib/petExpressions";
+import type { Mode, PetBehaviorFlag, PetCoatKey, PetSkin } from "../types";
+import { BloubAvatar } from "./BloubAvatar";
+import { BLOUB_STATES } from "../lib/petBodyMap";
+import type { StateId } from "../lib/bloub/states";
 import { COAT_PALETTES } from "../lib/petPalettes";
 import { clearPetDock } from "../lib/petSkin";
 
 /**
- * 轻宜「表情动作馆 + 皮肤/行为设置」。
- * 表情馆：3 分组 tab + 特技，网格缩略；点某个 → onTryExpression(id) 在主角色上试玩。
- * 皮肤：8 coat swatch、4 体型、大小 s/m/l。
- * 行为：动画开关 chips + 位置（自由/右下/底部）+ 重置位置。
+ * 轻宜「皮肤与行为」面板（bloub 版）。
+ * - 形态馆：展示 bloub 全部形变态（圆球/蛋/六边形/三角/星爆/彗星/感叹号/思考/睡觉…），点某态试玩。
+ * - 皮肤：8 coat swatch。
+ * - 行为/位置/大小。
  */
 export interface PetConfigPanelProps {
   mode: Mode;
   skin: PetSkin;
   onSkinChange: (patch: Partial<PetSkin>) => void;
-  onTryExpression: (id: PetExpressionId) => void;
+  /** 让主角色试玩一个 bloub 形变态 */
+  onTryExpression: (id: string) => void;
   onClose: () => void;
-  /** 当前展示中的表情（用于标记/聚焦） */
-  activeExpr?: PetExpressionId;
-  /** 打开时初始 tab */
-  initialTab?: "life" | "emotion" | "work" | "coat";
 }
 
 const COATS: PetCoatKey[] = ["teal", "amber", "azure", "coral", "violet", "rose", "graphite", "midnight"];
@@ -45,84 +39,53 @@ export function PetConfigPanel({
   onSkinChange,
   onTryExpression,
   onClose,
-  activeExpr,
-  initialTab,
 }: PetConfigPanelProps) {
-  const [tab, setTab] = useState<"life" | "emotion" | "work" | "coat">(initialTab ?? "life");
-  const groups = PET_EXPRESSIONS_BY_CATEGORY;
-  const active = activeExpr ? PET_EXPRESSIONS.find((e) => e.id === activeExpr) : null;
-  const activeFrame = useMemo(
-    () => (active ? staticFrame(active.id) : null),
-    [active],
-  );
-
-  const showGrid = tab === "life" || tab === "emotion" || tab === "work";
-  const grid = showGrid ? groups[tab] : [];
+  const [tab, setTab] = useState<"shapes" | "coat">("shapes");
 
   return (
     <div className="pet-config">
       <div className="pet-config-head">
         <b>轻宜 · {mode === "personal" ? "暮暖" : "晨青"}</b>
-        <span>表情动作馆 + 皮肤行为</span>
+        <span>形态与皮肤</span>
         <button type="button" className="icon-button" aria-label="关闭设置" onClick={onClose}>
           <X size={16} />
         </button>
       </div>
 
-      {/* 当前试玩表情大图 */}
-      {active && activeFrame && (
-        <div className="pet-config-preview">
-          <AvatarV2 frame={activeFrame} size={72} coat={skin.coat} />
-          <div>
-            <b>{active.nameZh}</b>
-            <span>{active.nameEn}</span>
-            <button
-              type="button"
-              className="pet-try-btn"
-              onClick={() => onTryExpression(active.id)}
-            >
-              试玩
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="pet-config-tabs" role="tablist">
-        {[
-          { key: "life" as const, label: "生命" },
-          { key: "emotion" as const, label: "情绪" },
-          { key: "work" as const, label: "工作" },
-          { key: "coat" as const, label: "皮肤" },
-        ].map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={tab === t.key ? "active" : ""}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          className={tab === "shapes" ? "active" : ""}
+          onClick={() => setTab("shapes")}
+        >
+          形态馆
+        </button>
+        <button
+          type="button"
+          className={tab === "coat" ? "active" : ""}
+          onClick={() => setTab("coat")}
+        >
+          皮肤行为
+        </button>
       </div>
 
-      {showGrid ? (
+      {tab === "shapes" ? (
         <div className="pet-expr-grid">
-          {grid.map((expr) => (
+          {BLOUB_STATES.map((s) => (
             <button
-              key={expr.id}
+              key={s.id}
               type="button"
               className="pet-expr-cell"
-              onClick={() => onTryExpression(expr.id)}
-              title={`${expr.nameZh} ${expr.nameEn}`}
+              onClick={() => onTryExpression(s.id)}
+              title={`${s.label} (${s.id})`}
             >
-              <AvatarV2 frame={staticFrame(expr.id)} size={44} coat={skin.coat} />
-              <span>{expr.nameZh}</span>
+              <BloubAvatar state={s.id} coat={skin.coat} size={52} frozenAt={0.5} />
+              <span>{s.label}</span>
             </button>
           ))}
         </div>
       ) : (
         <div className="pet-skin-panel">
-          {/* 身体配色 */}
           <label className="pet-set-label">身体配色</label>
           <div className="pet-swatches">
             {COATS.map((c) => (
@@ -138,22 +101,6 @@ export function PetConfigPanel({
             ))}
           </div>
 
-          {/* 身体形态 */}
-          <label className="pet-set-label">身体形态</label>
-          <div className="pet-chips">
-            {(["ball", "egg", "blob", "cloud"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={skin.shape === s ? "active" : ""}
-                onClick={() => onSkinChange({ shape: s })}
-              >
-                {{ ball: "球", egg: "蛋", blob: "小水滴", cloud: "云" }[s]}
-              </button>
-            ))}
-          </div>
-
-          {/* 大小 */}
           <label className="pet-set-label">大小</label>
           <div className="pet-chips">
             {(["s", "m", "l"] as const).map((s) => (
@@ -168,7 +115,6 @@ export function PetConfigPanel({
             ))}
           </div>
 
-          {/* 停靠位置 */}
           <label className="pet-set-label">位置</label>
           <div className="pet-chips">
             {(
@@ -182,19 +128,20 @@ export function PetConfigPanel({
                 key={p.key}
                 type="button"
                 className={skin.position === p.key ? "active" : ""}
-                onClick={() => onSkinChange({ position: p.key })}
+                onClick={() => {
+                  onSkinChange({ position: p.key });
+                  // 回到固定位时清除拖拽落点
+                  if (p.key === "corner" || p.key === "bottom") clearPetDock();
+                }}
               >
                 {p.label}
               </button>
             ))}
           </div>
-          {skin.position === "free" && (
-            <button type="button" className="pet-reset-pos" onClick={clearPetDock}>
-              重置到默认位置
-            </button>
-          )}
+          <button type="button" className="pet-reset-pos" onClick={clearPetDock}>
+            回到默认位置
+          </button>
 
-          {/* 行为 */}
           <label className="pet-set-label">动画与互动</label>
           <div className="pet-behaviors">
             {Object.entries(BEHAVIOR_LABELS).map(([flag, label]) => {
@@ -223,3 +170,5 @@ export function PetConfigPanel({
     </div>
   );
 }
+
+export type { StateId };

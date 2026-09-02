@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Send, X } from "lucide-react";
 import type { Mode, MascotMood, PetExpressionId, PetSkin, Task } from "../types";
+import type { StateId } from "../lib/bloub/states";
 import type { TaskDraft } from "./AddDialog";
 import MascotAvatar from "./MascotAvatar";
 import PetShell, { type PetMenuAction } from "./PetShell";
@@ -76,9 +77,8 @@ export default function MascotAssistant({
   const [chat, setChat] = useState<Record<Mode, Msg[]>>({ work: [], personal: [] });
   const [pendingDelete, setPendingDelete] = useState<{ candidateId: string } | null>(null);
   const [unread, setUnread] = useState(0);
-  /** 配置面板：表情动作馆 / 皮肤行为 */
+  /** 配置面板：形态/皮肤 */
   const [configOpen, setConfigOpen] = useState(false);
-  const [configInitialTab, setConfigInitialTab] = useState<"life" | "emotion" | "work" | "coat">("life");
   // 皮肤按空间分仓：工作=晨青 / 个人=暮暖（可各自自定义）
   const [skins, setSkins] = useState<Record<Mode, PetSkin>>(() => ({
     work: loadPetSkin("work"),
@@ -97,6 +97,8 @@ export default function MascotAssistant({
   );
   const [act, setAct] = useState<{ id: PetExpressionId; key: number } | null>(null);
   const [petHidden, setPetHidden] = useState(false);
+  /** 形态馆试玩：显示一个 bloub 形变态 */
+  const [previewState, setPreviewState] = useState<StateId | null>(null);
   const seenNudge = useRef<Set<number>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -274,9 +276,7 @@ export default function MascotAssistant({
     } else if (action === "hide") {
       setPetHidden(true);
     } else if (action === "studio" || action === "settings") {
-      // 表情动作馆 / 皮肤与行为：打开配置面板（对应 tab）
-      setOpen(true);
-      setConfigInitialTab(action === "studio" ? "life" : "coat");
+      // 形态/皮肤面板
       setConfigOpen(true);
     }
   };
@@ -291,7 +291,7 @@ export default function MascotAssistant({
           expression={thinking ? "typing" : moodToExpr(mood)}
           actId={act?.id ?? null}
           actKey={act?.key ?? 0}
-          chatOpen={open}
+          previewState={previewState}
           unread={unread}
           coatKey={skin.coat}
           onMenu={handlePetMenu}
@@ -380,12 +380,15 @@ export default function MascotAssistant({
             <PetConfigPanel
               mode={mode}
               skin={skin}
-              initialTab={configInitialTab}
               onSkinChange={setSkinForMode}
               onTryExpression={(id) => {
-                triggerAct(id);
+                // 形态馆试玩：把主角色切成该 bloub 形变态（持续显示）
+                setPreviewState(id as StateId);
               }}
-              onClose={() => setConfigOpen(false)}
+              onClose={() => {
+                setPreviewState(null);
+                setConfigOpen(false);
+              }}
             />
           </div>
         </div>
