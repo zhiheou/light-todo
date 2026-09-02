@@ -12,7 +12,6 @@ import CalendarView from "./components/CalendarView";
 import GoalsView from "./components/GoalsView";
 import PinGate from "./components/PinGate";
 import AddDialog, { type TaskDraft } from "./components/AddDialog";
-import SyncDialog from "./components/SyncDialog";
 import LoginGate from "./components/LoginGate";
 import type {
   AppData,
@@ -49,9 +48,6 @@ import {
   savePersonalLock,
   verifyPersonalLock,
 } from "./lib/personalLock";
-import { exportBackup, parseBackup } from "./lib/backup";
-import { pushSync, pullSync, setSyncConfig, type SyncConfig } from "./lib/sync";
-import { encryptBackup, decryptBackup } from "./lib/syncCrypto";
 import {
   decryptAppData,
   encryptAppData,
@@ -139,7 +135,6 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"task" | "memo" | null>(null);
-  const [syncOpen, setSyncOpen] = useState(false);
   /** 移动端抽屉菜单（底部 TabBar「更多」打开） */
   const [menuOpen, setMenuOpen] = useState(false);
   const [account, setAccount] = useState<{ username: string } | null>(null);
@@ -402,7 +397,7 @@ export default function App() {
       });
       addTask(task);
       setDialog(null);
-      setView("all");
+      // 留在当前视图：在「今日」新建的无日期任务也能立刻看到（今日口径含未设日期）
       setSelectedMemoId(null);
       setSelectedId(null);
       showToast("已添加");
@@ -434,16 +429,20 @@ export default function App() {
   const counts = useMemo(() => {
     const now = new Date();
     const today = dateKey(now);
+    const showDone = viewPrefs.showCompleted;
     let todayCount = 0;
     let allCount = 0;
     let doneCount = 0;
     for (const task of currentTasks) {
       if (task.completed) {
         doneCount += 1;
+        // 「全部」徽标与列表口径一致：显示已完成时把已完成也计入
+        if (showDone) allCount += 1;
         continue;
       }
       allCount += 1;
-      if (task.dueDate && (task.dueDate === today || isOverdue(task, now))) {
+      // 今日 = 未设日期 + 今天到期 + 逾期（与今日页分组口径一致）
+      if (!task.dueDate || task.dueDate === today || isOverdue(task, now)) {
         todayCount += 1;
       }
     }
@@ -460,7 +459,7 @@ export default function App() {
       calendar: 0,
       goals: currentGoals.length,
     };
-  }, [currentTasks, currentMemos, currentGoals]);
+  }, [currentTasks, currentMemos, currentGoals, viewPrefs.showCompleted]);
 
   useEffect(() => saveViewPrefs(viewPrefs), [viewPrefs]);
 
@@ -483,7 +482,7 @@ export default function App() {
       }
       if (task.completed) {
         if (isCompletedToday(task, now) || task.dueDate === today) done.push(task);
-      } else if (isOverdue(task, now) || task.dueDate === today) {
+      } else if (!task.dueDate || isOverdue(task, now) || task.dueDate === today) {
         open.push(task);
       }
     }
@@ -542,96 +541,6 @@ export default function App() {
     if (next === "notes") setSelectedId(null);
     else setSelectedMemoId(null);
   }, []);
-
-  const handleExport = useCallback(() => {
-    const json = exportBackup(workTasks, workMemos, null, {
-      workDimensions,
-      workGoals,
-      personalDimensions,
-      personalGoals,
-    });
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `light-todo-backup-${dateKey(new Date())}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast("备份已导出");
-  }, [workTasks, workMemos, workDimensions, workGoals, personalDimensions, personalGoals, showToast]);
-
-  const handleImport = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = String(reader.result ?? "");
-        const backup = parseBackup(text);
-        if (!backup) {
-          showToast("备份文件无效", "danger");
-          return;
-        }
-        setWorkTasks(normalizeTasks(backup.work.tasks));
-        setWorkMemos(normalizeMemos(backup.work.memos));
-        setWorkDimensions(normalizeDimensions(backup.workDimensions || []));
-        setWorkGoals(normalizeGoals(backup.workGoals || []));
-        setPersonalDimensions(normalizeDimensions(backup.personalDimensions || []));
-        setPersonalGoals(normalizeGoals(backup.personalGoals || []));
-        // 先锁定再提示，避免「已锁定」toast 覆盖「旧版个人空间需重新录入」提示
-        if (mode === "personal") lockPersonal();
-        if (backup.personal) {
-          showToast("已恢复备份（旧版个人空间数据需重新录入，访问码加密与账号加密不互通）");
-        } else {
-          showToast("已恢复备份");
-        }
-        setView("all");
-      };
-      reader.readAsText(file);
-    },
-    [mode, lockPersonal, showToast],
-  );
-
-  const handleSyncPush = useCallback(
-    async (config: SyncConfig, passphrase: string) => {
-      const backup = exportBackup(workTasks, workMemos, null, {
-        workDimensions,
-        workGoals,
-        personalDimensions,
-        personalGoals,
-      });
-      const encrypted = await encryptBackup(backup, passphrase);
-      await pushSync(config, encrypted);
-      setSyncConfig(config);
-      return "已上传到同步服务器";
-    },
-    [workTasks, workMemos, workDimensions, workGoals, personalDimensions, personalGoals],
-  );
-
-  const handleSyncPull = useCallback(
-    async (config: SyncConfig, passphrase: string) => {
-      const encrypted = await pullSync(config);
-      const backupText = await decryptBackup(encrypted, passphrase);
-      if (!backupText) throw new Error("同步口令不正确或文件已损坏");
-      const backup = parseBackup(backupText);
-      if (!backup) throw new Error("同步文件格式无效");
-      setWorkTasks(normalizeTasks(backup.work.tasks));
-      setWorkMemos(normalizeMemos(backup.work.memos));
-      setWorkDimensions(normalizeDimensions(backup.workDimensions || []));
-      setWorkGoals(normalizeGoals(backup.workGoals || []));
-      setPersonalDimensions(normalizeDimensions(backup.personalDimensions || []));
-      setPersonalGoals(normalizeGoals(backup.personalGoals || []));
-      // 先锁定再提示，避免「已锁定」toast 覆盖「旧版个人空间需重新录入」提示
-      if (mode === "personal") lockPersonal();
-      if (backup.personal) {
-        showToast("已从同步服务器恢复（旧版个人空间数据需重新录入，访问码加密与账号加密不互通）");
-      } else {
-        showToast("已从同步服务器恢复");
-      }
-      setSyncConfig(config);
-      setView("all");
-      return "已从同步服务器恢复";
-    },
-    [mode, lockPersonal, showToast],
-  );
 
   const collectAppData = useCallback((): AppData => {
     return {
@@ -735,7 +644,7 @@ export default function App() {
       setAccountPassword(password);
       setAccountReady(true);
       setAuthState("in");
-      setView("all");
+      setView("today");
       showToast("账号已创建，数据已加密同步");
     },
     [collectAppData, showToast],
@@ -770,7 +679,7 @@ export default function App() {
       setAccountPassword(password);
       setAccountReady(true);
       setAuthState("in");
-      setView("all");
+      setView("today");
       showToast("登录成功，数据已同步");
     },
     [collectAppData, showToast],
@@ -986,9 +895,6 @@ export default function App() {
             }
             lockPersonal();
           }}
-          onExport={handleExport}
-          onImport={handleImport}
-          onSync={() => setSyncOpen(true)}
           accountName={account?.username ?? null}
           onLogout={() => void handleLogout()}
           themePrefs={themePrefs}
@@ -1121,6 +1027,11 @@ export default function App() {
                 setSelectedId(task.id);
               }}
               onDelete={deleteTask}
+              onOpenList={(next) => {
+                setSelectedId(null);
+                setSelectedMemoId(null);
+                setView(next);
+              }}
             />
           ) : view === "notes" ? (
             <MemoList
@@ -1204,14 +1115,6 @@ export default function App() {
           onClose={() => setDialog(null)}
           dimensions={currentDimensions}
           goals={currentGoals}
-        />
-      )}
-
-      {syncOpen && (
-        <SyncDialog
-          onClose={() => setSyncOpen(false)}
-          onPush={handleSyncPush}
-          onPull={handleSyncPull}
         />
       )}
 

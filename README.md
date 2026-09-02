@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
   <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
-  <img src="https://img.shields.io/badge/version-v3.3-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-v3.4-blue?style=flat-square" alt="Version">
 </p>
 
 ---
@@ -50,6 +50,8 @@
 - **维度体系**：任务挂维度，维度打卡按组看进度（v3.3）
 - **可切换外观**：4 主题色 × 4 字体 × 3 卡片风格 × 4 字号，刷新保持（v3.3）
 - **桌面 + 移动端自适应**：移动端底部 TabBar + 抽屉菜单（v3.3）
+- **编辑更顺手**：编辑标题带时间词自动识别、快捷日期 chip、点外部自动保存关闭（v3.4）
+- **登录即「今日」**：登录落在今日，今日含未设日期任务（v3.4）
 - **今日 / 回顾 / 备忘录** 三类视图，一眼看清今天要做什么
 - **工作 / 个人双空间**：侧边栏一键切换，个人空间需本机访问码进入（防他人偷看）
 - **端到端加密**：数据用账号密码派生的密钥加密，服务器只存密文，任何情况下无法解密
@@ -72,7 +74,9 @@
 | 空间 | 工作 / 个人双模式 | 个人空间用本机访问码作门锁 |
 | 回顾 | 每日智能回顾 | 今日完成 / 未完成 / 逾期统计与建议；明日待办提前安排 |
 | 移动端 | 底部 TabBar + 抽屉 | v3.3：≤768px 自适应，今日/全部/备忘/更多 |
-| 同步 | 账号自动同步 | 另有 WebDAV 手动同步保留在侧栏，作为高级选项 |
+| 编辑 | 标题 NLP 自动带时间 / 快捷日期 | v3.4：编辑标题含「今天下午4点」自动填截止时间；今天/明天/周末/下月 chip 一键定日期；点外部自动保存关闭 |
+| 登录 | 默认落「今日」 | v3.4：今日含未设日期任务，快速添加立即可见 |
+| 同步 | 账号自动同步 | 数据端到端加密随账号同步，无需手动备份/WebDAV |
 | 隐私 | 端到端加密 | 数据本地加密后才上传 |
 
 ## 🔐 数据与隐私（两层安全体系）
@@ -140,7 +144,7 @@ wrangler deploy
 ```text
 src/                  React 前端（TypeScript）
   components/         界面组件（TodayView 多形态 / CalendarView / GoalsView / AppearancePanel / MobileTabBar…）
-  lib/                账号、加密、同步、访问码、Markdown、自然语言解析、维度/目标/主题
+  lib/                账号、加密、访问码、Markdown、自然语言解析、维度/目标/主题
 worker/               Cloudflare Worker 后端（/api/* + D1）
   src/                Worker 逻辑
   migrations/         D1 数据库迁移
@@ -159,6 +163,7 @@ src-tauri/            Tauri 桌面壳（存档）
 | v3.1 | 2026-08-20 | 任务↔备忘双向关联 + 备忘录 Markdown/标签 + 个人空间账号化重构 + 3 个数据丢失 bug 修复 |
 | v3.2 | 2026-09-01 | 今日视图展示已完成 + 顶栏视图选项（显示/隐藏已完成、详情/精简）+ 完成时间徽标 |
 | v3.3 | 2026-09-01 | UI 大改版：今日多形态（清单/维度/时间线/日程）+ 日历周/月/年 + 目标管理 + 维度体系 + 可切换外观（4 主题色×4 字体×3 卡片×4 字号）+ 桌面/移动端自适应 |
+| v3.4 | 2026-09-02 | 交互打磨：登录落「今日」+ 今日含未设日期 + 侧栏数字随显示已完成联动 + 修「全部」滑不动 + 编辑标题自动识别日期时间 + 快捷日期 chip + 编辑点外部自动保存 + 回顾统计可点跳转 + 移除备份/同步/恢复 |
 
 ## 📜 开源协议
 

@@ -89,7 +89,7 @@ export default function LoginGate({ onLogin, onRegister, booting, error }: Login
 
         <div className="gate-privacy">
           <LockKeyhole size={12} />
-          所有数据默认仅存于本浏览器；登录后自动加密同步，服务器不保存明文
+          数据保存在你的账号中，登录后自动加密同步——服务器不保存明文，换设备登录即恢复
         </div>
       </div>
 
@@ -110,7 +110,7 @@ export default function LoginGate({ onLogin, onRegister, booting, error }: Login
 
         <p className="gate-footnote">
           <FileDown size={11} />
-          登录后支持导出备份、WebDAV 私有同步，随时迁移数据
+          登录后数据自动加密同步到你的账号，无需手动备份
         </p>
       </div>
     </div>

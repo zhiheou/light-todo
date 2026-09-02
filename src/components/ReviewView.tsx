@@ -1,5 +1,5 @@
 import { CheckCircle2, Clock3, ListTodo, Sparkles } from "lucide-react";
-import type { Task } from "../types";
+import type { Task, ViewFilter } from "../types";
 import { isCompletedToday, isOverdue } from "../lib/tasks";
 import TaskList from "./TaskList";
 
@@ -9,6 +9,8 @@ interface ReviewViewProps {
   onToggle: (id: string) => void;
   onSelect: (task: Task) => void;
   onDelete: (task: Task) => void;
+  /** 点击统计卡跳转对应视图（今日 / 全部） */
+  onOpenList: (view: ViewFilter) => void;
 }
 
 function pad(n: number): string {
@@ -25,6 +27,7 @@ export default function ReviewView({
   onToggle,
   onSelect,
   onDelete,
+  onOpenList,
 }: ReviewViewProps) {
   const now = new Date();
   const today = dateKey(now);
@@ -52,6 +55,13 @@ export default function ReviewView({
   if (todayDone > 0) suggestions.push(`今天完成了 ${todayDone} 项，继续保持。`);
   if (suggestions.length === 0) suggestions.push("今天还没有完成记录，可以从一件小事开始。");
 
+  const statCells: Array<{ icon: typeof ListTodo; value: number; label: string; to: ViewFilter }> = [
+    { icon: CheckCircle2, value: todayDone, label: "今日完成", to: "today" },
+    { icon: ListTodo, value: todayOpen, label: "今日未完成", to: "today" },
+    { icon: Clock3, value: overdue, label: "已逾期", to: "today" },
+    { icon: Sparkles, value: tomorrowTasks.length, label: "明日待办", to: "all" },
+  ];
+
   return (
     <div className="review-view">
       <div className="review-summary">
@@ -60,26 +70,22 @@ export default function ReviewView({
           <h2>今日智能回顾</h2>
         </div>
         <div className="stat-grid">
-          <div className="stat-cell">
-            <CheckCircle2 size={15} />
-            <span className="stat-value">{todayDone}</span>
-            <span className="stat-label">今日完成</span>
-          </div>
-          <div className="stat-cell">
-            <ListTodo size={15} />
-            <span className="stat-value">{todayOpen}</span>
-            <span className="stat-label">今日未完成</span>
-          </div>
-          <div className="stat-cell">
-            <Clock3 size={15} />
-            <span className="stat-value">{overdue}</span>
-            <span className="stat-label">已逾期</span>
-          </div>
-          <div className="stat-cell">
-            <Sparkles size={15} />
-            <span className="stat-value">{tomorrowTasks.length}</span>
-            <span className="stat-label">明日待办</span>
-          </div>
+          {statCells.map((cell) => {
+            const Icon = cell.icon;
+            return (
+              <button
+                key={cell.label}
+                type="button"
+                className="stat-cell"
+                onClick={() => onOpenList(cell.to)}
+                title={`查看${cell.label}`}
+              >
+                <Icon size={15} />
+                <span className="stat-value">{cell.value}</span>
+                <span className="stat-label">{cell.label}</span>
+              </button>
+            );
+          })}
         </div>
         <div className="suggestion-box">
           {suggestions.map((text) => (

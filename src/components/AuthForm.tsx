@@ -112,7 +112,7 @@ export default function AuthForm({ onLogin, onRegister }: AuthFormProps) {
           disabled={busy}
           onClick={() => void submit()}
         >
-          {busy ? "处理中..." : mode === "login" ? "登录并恢复" : "注册并同步"}
+          {busy ? "处理中..." : mode === "login" ? "登录" : "注册"}
         </button>
       </div>
     </div>
