@@ -314,11 +314,17 @@ export default function MascotAssistant({
     const hist = chat[mode]
       .slice(-8)
       .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
-    const summary = tasks.slice(0, 30).map((t) => {
-      const when = t.dueDate ? `${t.dueDate}${t.dueTime ? " " + t.dueTime : ""}` : "未定";
-      return `${t.completed ? "✓" : "·"}${t.title}(${when})`;
-    });
-    const system = `你是「轻宜」，一个桌面宠物小助理（${mode === "personal" ? "个人空间" : "工作空间"}）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当前空间待办：${summary.join("；") || "(空)"}。`;
+    // 隐私边界：个人空间最私密 → 不发送任务明细给 AI；工作空间发摘要（标题+日期+完成态，不含备注/备忘）
+    const personal = mode === "personal";
+    const summary = personal
+      ? []
+      : tasks.slice(0, 30).map((t) => {
+          const when = t.dueDate ? `${t.dueDate}${t.dueTime ? " " + t.dueTime : ""}` : "未定";
+          return `${t.completed ? "✓" : "·"}${t.title}(${when})`;
+        });
+    const system = personal
+      ? "你是「轻宜」，一个桌面宠物小助理（个人空间）。语气可爱、简短、有温度。你不查看用户的具体数据，只做轻松闲聊与鼓励。"
+      : `你是「轻宜」，一个桌面宠物小助理（工作空间）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当前工作待办：${summary.join("；") || "(空)"}。`;
 
     window.setTimeout(async () => {
       try {

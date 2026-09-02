@@ -358,14 +358,13 @@ async function routeApi(request, path) {
           }),
         });
         if (!resp.ok) {
-          const errText = await resp.text().catch(() => "");
-          return json({ ok: false, error: "AI 服务异常", detail: errText.slice(0, 200) }, { status: 502 });
+          return json({ ok: false, error: "AI 服务异常" }, { status: 502 });
         }
         const data = await resp.json();
         const reply = data?.choices?.[0]?.message?.content ?? "";
         return json({ ok: true, reply, ai: true });
       } catch (err) {
-        return json({ ok: false, error: "AI 调用失败", detail: String(err).slice(0, 200) }, { status: 502 });
+        return json({ ok: false, error: "AI 调用失败" }, { status: 502 });
       }
     });
   }
