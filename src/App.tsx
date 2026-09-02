@@ -13,6 +13,7 @@ import GoalsView from "./components/GoalsView";
 import PinGate from "./components/PinGate";
 import AddDialog, { type TaskDraft } from "./components/AddDialog";
 import LoginGate from "./components/LoginGate";
+import MascotAssistant, { type MascotNudge } from "./components/MascotAssistant";
 import type {
   AppData,
   Dimension,
@@ -25,6 +26,7 @@ import type {
   TodayMode,
   ViewFilter,
 } from "./types";
+import { morningNudge, lullChatter, idleChatter, type BrainCtx } from "./lib/mascotBrain";
 import {
   filterTasks,
   isCompletedToday,
@@ -143,10 +145,15 @@ export default function App() {
   const [accountReady, setAccountReady] = useState(false);
   const [authState, setAuthState] = useState<"booting" | "gate" | "in">("booting");
   const [authError, setAuthError] = useState("");
+  /** 吉祥物主动推送消息队列（登录问候/闲置搭话/到点提醒） */
+  const [mascotNudges, setMascotNudges] = useState<MascotNudge[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
   const remoteSaveTimer = useRef<number | null>(null);
   const notified = useRef<Set<string>>(new Set());
+  // 吉祥物：每个会话只登录问候一次 / 只搭话有限次数
+  const mascotGreeted = useRef(false);
+  const mascotChats = useRef(0);
   // 本地最后编辑时间：pull 拉取时若已被本地更新盖过则丢弃旧服务端数据，避免覆盖用户刚做的修改
   const lastLocalEdit = useRef(0);
   const lastPullStarted = useRef(0);
@@ -844,6 +851,51 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [showToast]);
 
+  const pushMascot = useCallback((text: string) => {
+    setMascotNudges((prev) => [...prev.slice(-4), { id: Date.now() + Math.random(), text }]);
+  }, []);
+
+  // 登录成功（显式登录 / 刷新自动登录都会置 authState="in"）后，问候一次 + 汇总当天安排
+  const mascotCtx = useMemo<BrainCtx>(
+    () => ({ tasks: currentTasks, persona: mode, now: new Date() }),
+    [currentTasks, mode],
+  );
+  useEffect(() => {
+    if (authState !== "in") return;
+    if (mascotGreeted.current) return;
+    mascotGreeted.current = true;
+    const t = window.setTimeout(() => {
+      pushMascot(morningNudge(mascotCtx));
+    }, 800); // 等首屏稳定再冒泡
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState]);
+
+  // 登录后周期搭话：约 45s 无操作且没聊过太多 → 轻搭一句（每会话至多 2 次）
+  useEffect(() => {
+    if (authState !== "in") {
+      mascotChats.current = 0;
+      return;
+    }
+    const first = window.setTimeout(() => {
+      if (mascotChats.current < 2) {
+        mascotChats.current += 1;
+        pushMascot(lullChatter(mascotCtx));
+      }
+    }, 45 * 1000);
+    const second = window.setTimeout(() => {
+      if (mascotChats.current < 2) {
+        mascotChats.current += 1;
+        pushMascot(idleChatter(mascotCtx));
+      }
+    }, 150 * 1000);
+    return () => {
+      window.clearTimeout(first);
+      window.clearTimeout(second);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState, mode]);
+
   const viewTitle =
     view === "today"
       ? "今日"
@@ -1153,6 +1205,21 @@ export default function App() {
         menuOpen={menuOpen}
         onSelectView={handleSelectView}
         onOpenMenu={() => setMenuOpen(true)}
+      />
+
+      {/* v3.5 吉祥物助理：工作/个人双助理，各自只认当前空间数据 */}
+      <MascotAssistant
+        mode={mode}
+        tasks={currentTasks}
+        onAddTask={handleAddTask}
+        onAddMemo={handleAddMemo}
+        onOpenTask={(task) => {
+          // 打开任务编辑器但不强制切走当前视图（在备忘录列表点开任务时切备忘录视图除外）
+          setSelectedMemoId(null);
+          setSelectedId(task.id);
+        }}
+        onDeleteTask={deleteTask}
+        nudges={mascotNudges}
       />
     </div>
   );

@@ -4,6 +4,8 @@ export type SortMode = "priority" | "due";
 export type Priority = 1 | 2 | 3 | 4;
 /** 今日页展示形态 */
 export type TodayMode = "list" | "dimension" | "timeline" | "schedule";
+/** 吉祥物情绪态 */
+export type MascotMood = "idle" | "happy" | "thinking" | "reminding" | "listening";
 
 export type RepeatFreq = "daily" | "weekday" | "weekly" | "monthly" | "interval";
 

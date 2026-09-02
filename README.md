@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
   <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
-  <img src="https://img.shields.io/badge/version-v3.4-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-v3.5-blue?style=flat-square" alt="Version">
 </p>
 
 ---
@@ -52,6 +52,8 @@
 - **桌面 + 移动端自适应**：移动端底部 TabBar + 抽屉菜单（v3.3）
 - **编辑更顺手**：编辑标题带时间词自动识别、快捷日期 chip、点外部自动保存关闭（v3.4）
 - **登录即「今日」**：登录落在今日，今日含未设日期任务（v3.4）
+- **吉祥物小助理**：会动的圆脸机器人，对话就能建待办/记备忘/查安排，双助理隔离工作与个人（v3.5）
+- **主动搭话**：登录时吉祥物问候你今天的安排，闲置时轻搭提醒（v3.5）
 - **今日 / 回顾 / 备忘录** 三类视图，一眼看清今天要做什么
 - **工作 / 个人双空间**：侧边栏一键切换，个人空间需本机访问码进入（防他人偷看）
 - **端到端加密**：数据用账号密码派生的密钥加密，服务器只存密文，任何情况下无法解密
@@ -73,6 +75,8 @@
 | 标签 | 回车/逗号添加，列表顶部过滤 | 可与搜索叠加 |
 | 空间 | 工作 / 个人双模式 | 个人空间用本机访问码作门锁 |
 | 回顾 | 每日智能回顾 | 今日完成 / 未完成 / 逾期统计与建议；明日待办提前安排 |
+| 吉祥物 | 会动的小助理 | v3.5：SVG 圆脸机器人（呼吸/眨眼/瞳孔跟随/情绪态）；对话建待办/记备忘/查安排；双助理隔离（工作=小轻/个人=小安）；删除需确认 |
+| 主动提醒 | 登录问候 + 闲置搭话 | v3.5：登录时吉祥物汇总今天安排/逾期；闲置轻搭；页面存活内到点提醒 |
 | 移动端 | 底部 TabBar + 抽屉 | v3.3：≤768px 自适应，今日/全部/备忘/更多 |
 | 编辑 | 标题 NLP 自动带时间 / 快捷日期 | v3.4：编辑标题含「今天下午4点」自动填截止时间；今天/明天/周末/下月 chip 一键定日期；点外部自动保存关闭 |
 | 登录 | 默认落「今日」 | v3.4：今日含未设日期任务，快速添加立即可见 |
@@ -143,8 +147,8 @@ wrangler deploy
 
 ```text
 src/                  React 前端（TypeScript）
-  components/         界面组件（TodayView 多形态 / CalendarView / GoalsView / AppearancePanel / MobileTabBar…）
-  lib/                账号、加密、访问码、Markdown、自然语言解析、维度/目标/主题
+  components/         界面组件（TodayView 多形态 / CalendarView / GoalsView / AppearancePanel / MobileTabBar / Mascot…）
+  lib/                账号、加密、访问码、Markdown、自然语言解析、维度/目标/主题、吉祥物小脑
 worker/               Cloudflare Worker 后端（/api/* + D1）
   src/                Worker 逻辑
   migrations/         D1 数据库迁移
@@ -164,6 +168,7 @@ src-tauri/            Tauri 桌面壳（存档）
 | v3.2 | 2026-09-01 | 今日视图展示已完成 + 顶栏视图选项（显示/隐藏已完成、详情/精简）+ 完成时间徽标 |
 | v3.3 | 2026-09-01 | UI 大改版：今日多形态（清单/维度/时间线/日程）+ 日历周/月/年 + 目标管理 + 维度体系 + 可切换外观（4 主题色×4 字体×3 卡片×4 字号）+ 桌面/移动端自适应 |
 | v3.4 | 2026-09-02 | 交互打磨：登录落「今日」+ 今日含未设日期 + 侧栏数字随显示已完成联动 + 修「全部」滑不动 + 编辑标题自动识别日期时间 + 快捷日期 chip + 编辑点外部自动保存 + 回顾统计可点跳转 + 移除备份/同步/恢复 |
+| v3.5 | 2026-09-02 | 吉祥物小助理：会动圆脸机器人（呼吸/眨眼/瞳孔跟随/情绪态）+ 悬浮聊天面板 + 双助理隔离（工作=小轻/个人=小安）+ 本地小脑对话建待办/记备忘/查安排/删除确认 + 登录主动问候 + 闲置搭话 |
 
 ## 📜 开源协议
 

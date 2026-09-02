@@ -3170,3 +3170,320 @@ html[data-card-style="colorful"] .priority.p4 {
   background: var(--accent);
   color: #fff;
 }
+
+/* ============ v3.5 吉祥物助理 ============ */
+/* 情绪色调：工作=青白(teal)，个人=暖黑(coral/amber) —— 双助理隔离的视觉 */
+.mascot-work {
+  --mascot-color: var(--teal, #0f766e);
+  --mascot-soft: var(--teal-soft, #e6f4f2);
+}
+.mascot-personal {
+  --mascot-color: #c2410c;
+  --mascot-soft: #fdeee3;
+}
+
+/* ---- 头像本体：呼吸 + 眨眼动画 ---- */
+.mascot-avatar {
+  display: inline-block;
+  flex: none;
+  color: var(--mascot-color, var(--primary));
+}
+.mascot-blob {
+  animation: mascot-breathe 4s ease-in-out infinite;
+  transform-origin: 32px 34px;
+}
+.mascot-eyes .mascot-eye-l,
+.mascot-eyes .mascot-eye-r {
+  animation: mascot-blink 5.2s infinite;
+}
+.mascot-eyes .mascot-eye-r {
+  animation-delay: 0.12s;
+}
+.mascot-mood-reminding .mascot-blob {
+  animation-duration: 1.2s; /* 提醒时动得明显些 */
+}
+.mascot-mood-thinking .mascot-eyes {
+  animation: mascot-think-tilt 1.6s ease-in-out infinite;
+  transform-origin: 32px 29px;
+}
+.mascot-mood-happy .mascot-blob {
+  animation: mascot-bounce 0.5s ease-in-out;
+}
+.mascot-pupil {
+  transition: transform 0.12s ease-out;
+}
+
+@keyframes mascot-breathe {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.03, 0.97); }
+}
+@keyframes mascot-blink {
+  0%, 91%, 100% { transform: scaleY(1); }
+  94%, 96% { transform: scaleY(0.1); }
+}
+@keyframes mascot-bounce {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-5px) scale(1.05, 0.95); }
+  70% { transform: translateY(0) scale(0.97, 1.03); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes mascot-think-tilt {
+  0%, 100% { transform: rotate(0); }
+  50% { transform: rotate(-6deg); }
+}
+
+/* ---- FAB ---- */
+.mascot-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(16, 24, 40, 0.18);
+  display: grid;
+  place-items: center;
+  z-index: 36;
+  color: var(--mascot-color, var(--teal));
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.mascot-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 24px rgba(16, 24, 40, 0.24);
+}
+.mascot-fab-avatar {
+  border-radius: 50%;
+}
+.mascot-unread {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--surface);
+}
+
+/* ---- 聊天面板 ---- */
+.mascot-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 92px;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(520px, calc(100vh - 120px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(16, 24, 40, 0.22);
+  z-index: 47;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mascot-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--mascot-soft, var(--bg-2));
+  color: var(--mascot-color, var(--teal));
+}
+.mascot-head-avatar {
+  border-radius: 50%;
+  background: var(--surface);
+}
+.mascot-head-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+.mascot-head-id b {
+  font-size: 14px;
+}
+.mascot-head-id span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.mascot-panel-head .icon-button {
+  color: var(--muted);
+}
+
+.mascot-msgs {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mascot-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.mascot-msg.user {
+  justify-content: flex-end;
+}
+.mascot-bubble {
+  max-width: 82%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mascot-msg.bot .mascot-bubble {
+  background: var(--mascot-soft, var(--bg-2));
+  border-top-left-radius: 3px;
+  color: var(--text);
+}
+.mascot-msg.user .mascot-bubble {
+  background: var(--mascot-color, var(--teal));
+  color: #fff;
+  border-top-right-radius: 3px;
+}
+.mascot-msg-avatar {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* 打字中 */
+.mascot-typing {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 10px 12px;
+}
+.mascot-typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+  animation: mascot-dot 1.2s infinite;
+}
+.mascot-typing span:nth-child(2) { animation-delay: 0.15s; }
+.mascot-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes mascot-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 0.9; }
+}
+
+/* 首次打开：建议话术 chips */
+.mascot-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 8px;
+}
+.mascot-suggestions button {
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.mascot-suggestions button:hover {
+  border-color: var(--mascot-color, var(--primary));
+  color: var(--mascot-color, var(--primary));
+}
+
+/* 删除确认条 */
+.mascot-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--danger-soft, #fdeaea);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.mascot-confirm span { flex: 1; }
+.mascot-confirm button {
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+}
+.mascot-confirm button.secondary {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+/* 输入行 */
+.mascot-input {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+.mascot-input input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+  color: var(--text);
+  font-size: 13px;
+}
+.mascot-input button {
+  width: 36px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--mascot-color, var(--teal));
+  color: #fff;
+}
+.mascot-input button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- 移动端 ---- */
+@media (max-width: 768px) {
+  .mascot-fab {
+    right: 14px;
+    bottom: 72px; /* 避开底部 TabBar */
+    width: 56px;
+    height: 56px;
+  }
+  .mascot-panel {
+    right: 12px;
+    bottom: 136px;
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 160px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-blob,
+  .mascot-eyes .mascot-eye-l,
+  .mascot-eyes .mascot-eye-r,
+  .mascot-mood-thinking .mascot-eyes,
+  .mascot-mood-happy .mascot-blob,
+  .mascot-typing span {
+    animation: none !important;
+  }
+}
