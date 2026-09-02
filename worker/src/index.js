@@ -233,8 +233,9 @@ async function destroySession(token) {
 
 export default {
   async fetch(request, workerEnv) {
-    // 在模块作用域使用绑定（D1）。
+    // 在模块作用域使用绑定（D1 / secrets）。
     globalThis.DB = workerEnv.DB;
+    globalThis.DEEPSEEK_KEY = workerEnv.DEEPSEEK_API_KEY || "";
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -327,7 +328,77 @@ async function routeApi(request, path) {
     });
   }
 
+  if (path === "/api/chat" && method === "POST") {
+    // DeepSeek 真 AI 对话（key 存 Worker secret，浏览器不接触）
+    return requireAuth(token, async (session) => {
+      const key = globalThis.DEEPSEEK_KEY || "";
+      if (!key) {
+        return json({ ok: true, reply: "", ai: false, error: "尚未接入 AI" });
+      }
+      const body = await readBody(request);
+      const messages = Array.isArray(body?.messages) ? body.messages : [];
+      if (messages.length === 0) return json({ error: "缺少消息" }, { status: 400 });
+      // 限制长度防滥用
+      const trimmed = messages.slice(-12).map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content || "").slice(0, 2000),
+      }));
+      try {
+        const resp = await fetch("https://api.deepseek.com/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: trimmed,
+            max_tokens: 600,
+            temperature: 0.7,
+          }),
+        });
+        if (!resp.ok) {
+          const errText = await resp.text().catch(() => "");
+          return json({ ok: false, error: "AI 服务异常", detail: errText.slice(0, 200) }, { status: 502 });
+        }
+        const data = await resp.json();
+        const reply = data?.choices?.[0]?.message?.content ?? "";
+        return json({ ok: true, reply, ai: true });
+      } catch (err) {
+        return json({ ok: false, error: "AI 调用失败", detail: String(err).slice(0, 200) }, { status: 502 });
+      }
+    });
+  }
+
+  if (path === "/api/pet-log" && method === "POST") {
+    // 脱敏交互日志（为自训模型攒数据；不存明文标题/内容）
+    return requireAuth(token, async (session) => {
+      const body = await readBody(request);
+      const kind = String(body?.kind || "").slice(0, 40);
+      const action = String(body?.action || "").slice(0, 60);
+      const expr = String(body?.expr || "").slice(0, 40);
+      const ok = body?.ok === false ? 0 : 1;
+      const aiReplyLen = Number(body?.aiReplyLen) || 0;
+      if (!kind) return json({ ok: true }); // 静默忽略空
+      await DB.prepare(
+        `INSERT INTO pet_interactions (account_hash, ts, kind, expr_state, action, ai_reply_len, ok)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      )
+        .bind(hashAccountId(session.userId), Date.now(), kind, expr, action, aiReplyLen, ok)
+        .run();
+      return json({ ok: true });
+    });
+  }
+
   return json({ error: "Not Found" }, { status: 404 });
+}
+
+/** 账号脱敏：sha256(userId) 前 16 位，日志不落明文用户 id */
+function hashAccountId(id) {
+  const s = String(id);
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(16) + "-" + s.length;
 }
 
 async function requireAuth(token, handler) {

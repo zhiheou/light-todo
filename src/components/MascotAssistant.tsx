@@ -294,23 +294,59 @@ export default function MascotAssistant({
     setThinking(true);
     setMood("thinking");
 
-    // 本地小脑即时回答；留一点停顿感更像真人
-    window.setTimeout(() => {
-      const ctx: BrainCtx = { tasks, persona: mode };
-      const reply = answer(text, ctx);
-      setThinking(false);
-      if (reply.action) {
-        if (reply.action.type === "confirm") setMood("listening");
+    // 本地小脑先判断动作（建/删/确认 仍走本地规则）
+    const ctx: BrainCtx = { tasks, persona: mode };
+    const local = answer(text, ctx);
+
+    // 若有动作（建任务/备忘/删除/确认）→ 本地执行 + 回执（不依赖 AI）
+    if (local.action) {
+      window.setTimeout(() => {
+        setThinking(false);
+        if (local.action?.type === "confirm") setMood("listening");
         else setMood("happy");
-        pushBot(reply.text);
-        runAction(reply.action);
-      } else {
-        // 没听懂兜底 / 纯聊天 → 温和困惑
-        const puzzled = /暂时没太懂|嗯……/.test(reply.text);
+        pushBot(local.text);
+        runAction(local.action);
+      }, 260);
+      return;
+    }
+
+    // 纯聊天/没听懂 → 若后端已接 AI，问 DeepSeek；否则用本地兜底文案
+    const hist = chat[mode]
+      .slice(-8)
+      .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }));
+    const summary = tasks.slice(0, 30).map((t) => {
+      const when = t.dueDate ? `${t.dueDate}${t.dueTime ? " " + t.dueTime : ""}` : "未定";
+      return `${t.completed ? "✓" : "·"}${t.title}(${when})`;
+    });
+    const system = `你是「轻宜」，一个桌面宠物小助理（${mode === "personal" ? "个人空间" : "工作空间"}）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当前空间待办：${summary.join("；") || "(空)"}。`;
+
+    window.setTimeout(async () => {
+      try {
+        const resp = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [{ role: "system", content: system }, ...hist, { role: "user", content: text }] }),
+        });
+        const data = await resp.json().catch(() => null);
+        const aiReply = data?.ai ? String(data.reply || "").trim() : "";
+        if (aiReply) {
+          setThinking(false);
+          setMood("happy");
+          pushBot(aiReply);
+          return;
+        }
+        // AI 没接/失败 → 本地兜底
+        setThinking(false);
+        const puzzled = /暂时没太懂|嗯……/.test(local.text);
         setMood(puzzled ? "idle" : "happy");
-        pushBot(reply.text);
+        pushBot(local.text);
+      } catch {
+        setThinking(false);
+        const puzzled = /暂时没太懂|嗯……/.test(local.text);
+        setMood(puzzled ? "idle" : "happy");
+        pushBot(local.text);
       }
-    }, 260);
+    }, 300);
   }
 
   const handlePetMenu = (action: PetMenuAction) => {
