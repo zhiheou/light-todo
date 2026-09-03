@@ -860,6 +860,13 @@ button {
   color: var(--muted);
 }
 
+/* v3.9 flomo 式：收窄居中内容列，卡片不再横空一大片 */
+.memo-flow {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 0 2px;
+}
+
 /* v3.9 flomo 式卡片流：高度随内容走，短句=小卡、长文=大卡 */
 .memo-card {
   position: relative;
@@ -1226,27 +1233,34 @@ button {
   z-index: 19; /* 略低于 .drawer(20)，高于列表 */
 }
 
+/* v3.9 编辑改居中弹窗（用户反馈：右侧抽屉别扭，要像"新建"那样从中间展开） */
 .drawer {
   position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 380px;
-  max-width: 100vw;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(86vh, 720px);
   background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(16, 24, 40, 0.28);
   z-index: 20;
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 20px;
   overflow-y: auto;
 }
 
-/* 移动端：抽屉全宽时点击遮罩即关闭 */
+/* 移动端：居中弹窗占满可视区，点击遮罩即关闭 */
 @media (max-width: 768px) {
   .drawer-backdrop {
     background: rgba(15, 23, 42, 0.35);
+  }
+  .drawer {
+    width: calc(100vw - 24px);
+    max-height: 88vh;
+    padding: 16px;
   }
 }
 

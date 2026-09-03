@@ -75,7 +75,7 @@ export default function MemoList({
   }
 
   return (
-    <div>
+    <div className="memo-flow">
       {onQuickAdd && (
         <div className="memo-quickadd">
           <NotebookPen size={16} />
