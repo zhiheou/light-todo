@@ -324,7 +324,12 @@ export default function MascotAssistant({
         pushBot(cancelDelete().text);
         return;
       }
-      // 其它回复先不当授权，也不打断授权等待
+      // 其它回复：仍在等授权，给一句轻提示不打断
+      setChat((prev) => ({
+        ...prev,
+        [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+      }));
+      pushBot("要先回我「允许删除」我才会帮你删哦；回「不删」我就不动了。");
       return;
     }
     // 若有待确认删除，先判断是/否
