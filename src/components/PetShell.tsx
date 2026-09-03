@@ -91,6 +91,10 @@ export default function PetShell({
   const trail = useRef<TrailSample[]>([]);
   /** 是否正在物理飞行 */
   const flying = useRef(false);
+  /** 本段飞行起始时间（看门狗用：超时强制落定，杜绝"永远飞/卡死"） */
+  const flightStart = useRef(0);
+  /** 看门狗：飞行超过该毫秒数仍未 settle → 强制停下（正常甩飞 2-3s 内必停） */
+  const FLIGHT_MAX_MS = 6000;
   const phys = useRef<PhysicsState>({ x: 0, y: 0, vx: 0, vy: 0 });
   const wobble = useRef(0); // 撞墙后轻微旋转抖动角度
   const hitCooldown = useRef(0); // 撞墙 act 冷却，防连刷
@@ -268,6 +272,20 @@ export default function PetShell({
         lastReported.current = "";
         onPosition?.({ x: final.x, y: final.y, w: px, h: px });
         if (chatterOn) popTip(petChatter.landed());
+        return;
+      }
+      // 看门狗：飞行太久仍不停 → 强制落定（防"卡住后一直动/点不中"的极端情况）
+      if (performance.now() - flightStart.current > FLIGHT_MAX_MS) {
+        flying.current = false;
+        const r2 = phys.current;
+        const final = { x: Math.round(r2.x), y: Math.round(r2.y) };
+        setDock(final);
+        savePetDock(final);
+        el.style.transform = "";
+        wobble.current = 0;
+        lastReported.current = "";
+        onPosition?.({ x: final.x, y: final.y, w: px, h: px });
+        return;
       }
     };
     raf = requestAnimationFrame(loop);
@@ -291,6 +309,13 @@ export default function PetShell({
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const el = shellRef.current;
     if (!el) return;
+    // 抓起即取消飞行：物理循环与拖拽双写 left/top 会互相打架，导致桌宠"卡住一直动、点不中"
+    if (flying.current) {
+      flying.current = false;
+      flightStart.current = 0;
+      el.style.transform = ""; // 清掉可能的 wobble 旋转
+      wobble.current = 0;
+    }
     // 每次按下清空轨迹，避免上一段拖拽残留影响甩速估算
     trail.current = [];
     const d0 = dock?.x ?? 0;
@@ -353,6 +378,7 @@ export default function PetShell({
           const r = el.getBoundingClientRect();
           phys.current = { x: r.x, y: r.y, vx: fling.vx, vy: fling.vy };
           flying.current = true;
+          flightStart.current = performance.now(); // 看门狗计时起点
           if (chatterOn) popTip(petChatter.thrown());
           return; // 交给物理循环，落定后 commit
         }
@@ -366,6 +392,21 @@ export default function PetShell({
   function onCtx(e: React.MouseEvent) {
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY });
+  }
+  /** 取消一次拖拽/飞行状态（pointercancel/失焦/捕获丢失时兜底，杜绝状态卡死） */
+  function cancelInteraction(e: { pointerId?: number }) {
+    const d = drag.current;
+    if (d && (e.pointerId === undefined || d.id === e.pointerId)) {
+      drag.current = null;
+      trail.current = [];
+      if (flying.current) {
+        flying.current = false;
+        flightStart.current = 0;
+      }
+      const el = shellRef.current;
+      if (el) el.style.transform = "";
+      wobble.current = 0;
+    }
   }
 
   // 注视跟随：窗口级 pointermove——鼠标在屏幕任何位置宠物都看过去（bloub 的 gaze 语义）
@@ -430,6 +471,7 @@ export default function PetShell({
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
+        onPointerCancel={cancelInteraction}
         onContextMenu={onCtx}
         onDoubleClick={(e) => {
           e.preventDefault();
