@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ArrowRightToLine, NotebookPen, Pencil, Pin, Trash2, Link2 } from "lucide-react";
 import type { Memo } from "../types";
-import { memoSummary } from "../lib/markdown";
 
 /** 从文本里抽出 `#标签`（无空格标签），如"买牛奶 #生活" → text=买牛奶, tags=[生活] */
 function splitInlineTags(input: string): { text: string; tags: string[] } {
@@ -180,8 +179,8 @@ export default function MemoList({
               </button>
             </div>
 
-            {/* 正文：整段自然显示，卡片高度随内容走（短=小卡，长=大卡） */}
-            <div className="memo-card-text">{memoSummary(memo.text, 240)}</div>
+            {/* 正文：flomo 式——整段全显(短就是一句)，超长用行截断，meta 紧跟其后 */}
+            <div className="memo-card-text">{memo.text || "（空）"}</div>
 
             <div className="memo-card-meta">
               <span className="meta-chip">{formatTime(memo.updatedAt)}</span>
