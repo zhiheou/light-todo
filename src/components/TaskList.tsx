@@ -74,7 +74,10 @@ export default function TaskList({
                 onToggle(task.id);
               }}
             >
-              {task.completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+              {/* v3.8 F：勾选图标随完成态翻转重挂一次，触发 pop 微动效（刷新不闪烁） */}
+              <span key={task.completed ? "done" : "todo"} className="check-pop">
+                {task.completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+              </span>
             </button>
 
             <div className="task-main">

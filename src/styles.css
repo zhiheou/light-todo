@@ -666,7 +666,35 @@ button {
 
 .task-row.done .task-title {
   color: var(--muted);
-  text-decoration: line-through;
+  /* text-decoration 改为下方背景渐变擦除式划线（见 .task-title 背景组） */
+}
+
+/* v3.8 F：任务卡微动效 */
+/* 勾选图标弹一下（key 变化重挂 span 触发动画；取消勾选/完成都会播） */
+.check-pop {
+  display: inline-flex;
+  animation: check-pop 0.2s ease-out;
+}
+@keyframes check-pop {
+  0% { transform: scale(0.55); opacity: 0.4; }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); opacity: 1; }
+}
+/* 文字划线从左到右描一遍：过渡无法作用于 text-decoration，用背景渐变擦除法；
+   线落在字形中上部（50%）更像删除线 */
+.task-row .task-title {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-size: 0% 1.5px;
+  background-position: 0 50%;
+  transition: background-size 0.18s ease, color 0.18s ease;
+}
+.task-row.done .task-title {
+  background-size: 100% 1.5px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .check-pop { animation: none; }
+  .task-row .task-title { transition: none; }
 }
 
 .task-note {
