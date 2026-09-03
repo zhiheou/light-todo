@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { ArrowRightToLine, NotebookPen, Pencil, Pin, PinOff, Trash2, Link2 } from "lucide-react";
+import { ArrowRightToLine, NotebookPen, Pencil, Pin, Trash2, Link2 } from "lucide-react";
 import type { Memo } from "../types";
-import { memoSummary, memoTitle } from "../lib/markdown";
+import { memoSummary } from "../lib/markdown";
 
 /** 从文本里抽出 `#标签`（无空格标签），如"买牛奶 #生活" → text=买牛奶, tags=[生活] */
 function splitInlineTags(input: string): { text: string; tags: string[] } {
@@ -125,42 +125,24 @@ export default function MemoList({
         sorted.map((memo) => (
           <article
             key={memo.id}
-            className={["memo-row", selectedId === memo.id ? "selected" : ""]
+            className={["memo-card", selectedId === memo.id ? "selected" : ""]
               .filter(Boolean)
               .join(" ")}
             onClick={() => onSelect(memo)}
           >
-            <button
-              type="button"
-              className="pin-toggle"
-              aria-label={memo.pinned ? "取消置顶" : "置顶"}
-              onClick={(event) => {
-                event.stopPropagation();
-                onTogglePin(memo.id);
-              }}
-            >
-              {memo.pinned ? <Pin size={15} /> : <PinOff size={15} />}
-            </button>
-            <div className="memo-main">
-              <div className="memo-title">{memoTitle(memo.text)}</div>
-              <div className="memo-summary">{memoSummary(memo.text, 80)}</div>
-              <div className="task-meta">
-                <span className="meta-chip">{formatTime(memo.updatedAt)}</span>
-                {memo.pinned && <span className="meta-chip">置顶</span>}
-                {(memo.tags ?? []).map((tag) => (
-                  <span key={tag} className="meta-chip tag-meta">
-                    #{tag}
-                  </span>
-                ))}
-                {linkedCounts[memo.id] && (
-                  <span className="meta-chip linked-meta">
-                    <Link2 size={11} />
-                    {linkedCounts[memo.id]} 个任务
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="row-actions">
+            {/* 操作区：置顶/转待办/编辑/删除 收进卡右上，平时低调、悬停浮出 */}
+            <div className="memo-card-ops">
+              <button
+                type="button"
+                className={memo.pinned ? "pin-toggle on" : "pin-toggle"}
+                aria-label={memo.pinned ? "取消置顶" : "置顶"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTogglePin(memo.id);
+                }}
+              >
+                <Pin size={14} />
+              </button>
               {onConvertToTask && (
                 <button
                   type="button"
@@ -183,7 +165,7 @@ export default function MemoList({
                   onSelect(memo);
                 }}
               >
-                <Pencil size={15} />
+                <Pencil size={14} />
               </button>
               <button
                 type="button"
@@ -194,8 +176,27 @@ export default function MemoList({
                   onDelete(memo);
                 }}
               >
-                <Trash2 size={15} />
+                <Trash2 size={14} />
               </button>
+            </div>
+
+            {/* 正文：整段自然显示，卡片高度随内容走（短=小卡，长=大卡） */}
+            <div className="memo-card-text">{memoSummary(memo.text, 240)}</div>
+
+            <div className="memo-card-meta">
+              <span className="meta-chip">{formatTime(memo.updatedAt)}</span>
+              {memo.pinned && <span className="meta-chip">置顶</span>}
+              {(memo.tags ?? []).map((tag) => (
+                <span key={tag} className="meta-chip tag-meta">
+                  #{tag}
+                </span>
+              ))}
+              {linkedCounts[memo.id] && (
+                <span className="meta-chip linked-meta">
+                  <Link2 size={11} />
+                  {linkedCounts[memo.id]} 个任务
+                </span>
+              )}
             </div>
           </article>
         ))
