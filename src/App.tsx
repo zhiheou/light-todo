@@ -47,6 +47,7 @@ import { loadWorkGoals, saveWorkGoals } from "./lib/goalsLocal";
 import { makeDimension, normalizeDimensions } from "./lib/dimensions";
 import { makeGoal, normalizeGoals } from "./lib/goals";
 import { applyTheme, loadThemePrefs, saveThemePrefs } from "./lib/theme";
+import { parseQuickAdd } from "./lib/nlp";
 import {
   hasPersonalLock,
   savePersonalLock,
@@ -445,6 +446,37 @@ export default function App() {
       showToast("已记录");
     },
     [mode, requestPersonal, showToast],
+  );
+
+  // v3.9 收件箱：把一条备忘"转为待办"——用 NLP 解析它文本里的时间/循环，转成任务并移出备忘。
+  const handleConvertMemoToTask = useCallback(
+    (memo: Memo) => {
+      lastLocalEdit.current = Date.now();
+      const p = parseQuickAdd({ title: memo.text, notes: "", now: new Date() });
+      const title = p.title && p.title !== "未命名任务" ? p.title : memo.text.trim() || "未命名任务";
+      const task = makeTask({
+        title,
+        notes: "",
+        priority: p.priority,
+        dueDate: p.dueDate,
+        dueTime: p.dueTime,
+        remindAt: p.remindAt,
+        repeat: p.repeat ?? undefined,
+      });
+      // 保留备忘原文在备注里（避免转走就丢信息），并删掉原备忘
+      if (memo.text.trim() !== title) task.notes = memo.text.trim();
+      if (mode === "work") {
+        setWorkTasks((prev) => [task, ...prev]);
+        setWorkMemos((prev) => prev.filter((m) => m.id !== memo.id));
+      } else {
+        setPersonalTasks((prev) => [task, ...prev]);
+        setPersonalMemos((prev) => prev.filter((m) => m.id !== memo.id));
+      }
+      if (selectedMemoId === memo.id) setSelectedMemoId(null);
+      const when = task.dueDate ? `${task.dueDate}${task.dueTime ? " " + task.dueTime : ""}` : "未设日期";
+      showToast(`已转为待办：${title}（${when}）`);
+    },
+    [mode, selectedMemoId, showToast],
   );
 
   const counts = useMemo(() => {
@@ -1184,6 +1216,7 @@ export default function App() {
               }}
               onDelete={deleteMemo}
               onQuickAdd={handleAddMemo}
+              onConvertToTask={handleConvertMemoToTask}
             />
           ) : view === "today" ? (
             <TodayView

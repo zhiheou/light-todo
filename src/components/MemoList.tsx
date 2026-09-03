@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NotebookPen, Pencil, Pin, PinOff, Trash2, Link2 } from "lucide-react";
+import { ArrowRightToLine, NotebookPen, Pencil, Pin, PinOff, Trash2, Link2 } from "lucide-react";
 import type { Memo } from "../types";
 import { memoSummary, memoTitle } from "../lib/markdown";
 
@@ -22,6 +22,8 @@ interface MemoListProps {
   onDelete: (memo: Memo) => void;
   /** v3.8 G：顶部"随手记…"回车成卡；支持行内 #tag */
   onQuickAdd?: (text: string, tags?: string[]) => void;
+  /** v3.9 收件箱：把一条备忘"转为待办"（App 用 NLP 解析成任务并移出） */
+  onConvertToTask?: (memo: Memo) => void;
 }
 
 function formatTime(ts: number): string {
@@ -44,6 +46,7 @@ export default function MemoList({
   onSelect,
   onDelete,
   onQuickAdd,
+  onConvertToTask,
 }: MemoListProps) {
   const [draft, setDraft] = useState("");
   const submitQuick = () => {
@@ -158,6 +161,20 @@ export default function MemoList({
               </div>
             </div>
             <div className="row-actions">
+              {onConvertToTask && (
+                <button
+                  type="button"
+                  className="memo-totask"
+                  title="转为待办"
+                  aria-label="转为待办"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onConvertToTask(memo);
+                  }}
+                >
+                  <ArrowRightToLine size={14} />
+                </button>
+              )}
               <button
                 type="button"
                 aria-label="编辑"

@@ -813,6 +813,15 @@ button {
   color: var(--danger);
 }
 
+/* v3.9 收件箱：备忘「转为待办」按钮 */
+.row-actions button.memo-totask {
+  color: var(--teal);
+}
+.row-actions button.memo-totask:hover {
+  background: var(--teal-soft, rgba(15, 118, 110, 0.12));
+  color: var(--teal);
+}
+
 .empty {
   display: grid;
   place-items: center;
