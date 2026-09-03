@@ -10,7 +10,11 @@ import { PetConfigPanel } from "./PetConfigPanel";
 import {
   answer,
   cancelDelete,
+  cancelRecordFeeling,
   confirmDelete,
+  confirmRecordFeeling,
+  isCancelRecord,
+  isConfirmRecord,
   isGrantDeleteIntent,
   isOffTopic,
   needDeleteGrantReply,
@@ -124,6 +128,8 @@ export default function MascotAssistant({
   const [pendingDelete, setPendingDelete] = useState<{ candidateId: string } | null>(null);
   /** v3.8 B：正在等用户"允许删除"授权（首次删待办）；记录了要删的那条 */
   const [awaitingGrant, setAwaitingGrant] = useState<{ candidateId: string } | null>(null);
+  /** v3.8.1 C：情绪 → 询问是否记成 #心情 备忘（pending，用户确认才记） */
+  const [pendingFeeling, setPendingFeeling] = useState<{ text: string } | null>(null);
   /** v3.8 D：防刷冷却——距上次发消息不足 8s 时忽略新消息 */
   const lastSentAt = useRef(0);
   const [unread, setUnread] = useState(0);
@@ -240,6 +246,7 @@ export default function MascotAssistant({
     setChat((prev) => ({ ...prev, [mode]: [] }));
     setPendingDelete(null);
     setAwaitingGrant(null);
+    setPendingFeeling(null);
     setMood("idle");
     setUnread(0);
   }
@@ -260,6 +267,12 @@ export default function MascotAssistant({
         };
         onAddTask(draft);
         triggerAct("done");
+        break;
+      }
+      case "askRecordFeeling": {
+        // v3.8.1 C：情绪已共情，询问是否记 #心情 —— 等用户确认，不擅自记
+        setPendingFeeling({ text: action.text });
+        setMood("listening");
         break;
       }
       case "addMemo":
@@ -297,6 +310,38 @@ export default function MascotAssistant({
     const text = (raw ?? input).trim();
     if (!text || thinking) return;
     setInput("");
+    // v3.8.1 C：若正在问"要不要记心情备忘"，先判断是/否
+    if (pendingFeeling) {
+      if (isConfirmRecord(text)) {
+        setChat((prev) => ({
+          ...prev,
+          [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+        }));
+        const reply = confirmRecordFeeling(pendingFeeling.text);
+        setPendingFeeling(null);
+        setMood("happy");
+        pushBot(reply.text);
+        runAction(reply.action);
+        return;
+      }
+      if (isCancelRecord(text)) {
+        setChat((prev) => ({
+          ...prev,
+          [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+        }));
+        setPendingFeeling(null);
+        setMood("idle");
+        pushBot(cancelRecordFeeling().text);
+        return;
+      }
+      // 其它回复：仍在等确认，给轻提示不打断
+      setChat((prev) => ({
+        ...prev,
+        [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+      }));
+      pushBot("我在等你决定要不要记成 #心情 备忘——回「记吧」或「不用」就好。");
+      return;
+    }
     // v3.8 B：若正在等"允许删除"授权，先判断这句是不是授权
     if (awaitingGrant) {
       const isGrant = isGrantDeleteIntent(text);
@@ -586,6 +631,14 @@ export default function MascotAssistant({
               <span>首次帮你删待办需要授权：</span>
               <button type="button" onClick={() => send("允许删除")}>允许删除</button>
               <button type="button" className="secondary" onClick={() => send("不删")}>取消</button>
+            </div>
+          )}
+
+          {pendingFeeling && (
+            <div className="mascot-confirm">
+              <span>要不要记成一条 #心情 备忘？</span>
+              <button type="button" onClick={() => send("记吧")}>记下来</button>
+              <button type="button" className="secondary" onClick={() => send("不用")}>不用</button>
             </div>
           )}
 

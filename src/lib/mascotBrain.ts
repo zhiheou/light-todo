@@ -26,7 +26,9 @@ export type BrainAction =
   | { type: "addMemo"; text: string; tags?: string[] }
   | { type: "openTask"; id: string }
   | { type: "confirm"; candidateId: string }
-  | { type: "deleteTask"; id: string };
+  | { type: "deleteTask"; id: string }
+  /** v3.8.1：情绪 → 先共情，询问是否记录（用户确认才记） */
+  | { type: "askRecordFeeling"; text: string };
 
 export interface BrainReply {
   /** 给用户看的话 */
@@ -35,6 +37,26 @@ export interface BrainReply {
   action?: BrainAction;
   /** 是否在等待用户确认（配合 confirm 动作） */
   awaitingConfirm?: boolean;
+}
+
+/** 用户对"要不要记一条心情备忘"回"好/记吧" → 真正执行记录（带 #心情 标签） */
+export function confirmRecordFeeling(text: string): BrainReply {
+  return { text: `好，我帮你记成心情备忘啦 #心情，随时能翻到。`, action: { type: "addMemo", text, tags: ["心情"] } };
+}
+
+/** 用户回"不用/算了" → 不记录，只安抚 */
+export function cancelRecordFeeling(): BrainReply {
+  return { text: "好～不记也完全可以。有需要就随时找我。" };
+}
+
+/** 判断用户回复是否是"记心情/记吧/好"（确认记录） */
+export function isConfirmRecord(raw: string): boolean {
+  return /^(好|好的|嗯|行|可以|记|记吧|记一下|要|要的|对|去吧|ok)/.test(raw.trim());
+}
+
+/** 判断用户回复是否是"不记/算了"（拒绝记录） */
+export function isCancelRecord(raw: string): boolean {
+  return /^(不|不用|算了|不要|别|先不了|不了|嗯?不用|没事)/.test(raw.trim());
 }
 
 function pad(n: number): string {
@@ -150,23 +172,25 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
 }
 
 /** 判断文本是否"建备忘录" */
-/** 心情词库：情绪宣泄类句子（"好烦/累死了/好开心…"）当作一次心情备忘（自动带 #心情 标签） */
+/** 心情词库：情绪宣泄类句子（"好烦/累死了/好开心…"）——先共情，再询问是否记成 #心情 */
 const FEELING_WORDS = /(好烦|烦死|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服)/;
+const NEG_FEELING = /(烦|累|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|气|暴躁|烦躁|郁闷|不开心|emo|抑郁|孤独|失眠|撑不住|撑不下去)/;
 function tryFeeling(raw: string): BrainReply | null {
   if (!FEELING_WORDS.test(raw)) return null;
+  // 抽一句简洁的"心情正文"（去掉引导词/情绪以外的词），供询问时预览
   const cleaned = raw
     .replace(/^(我|我好|感觉|今天|最近)/, "")
     .replace(/(记到|记一下|备忘录|待办)/g, "")
     .replace(/[，。！？\s]+/g, " ")
     .trim();
   if (!cleaned) return null;
-  const moody = /(烦|累|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|气|暴躁|烦躁|郁闷|不开心|emo|抑郁|孤独|失眠|撑不住|撑不下去)/.test(raw);
+  const moody = NEG_FEELING.test(raw);
   const text = cleaned.length > 24 ? cleaned.slice(0, 24) + "…" : cleaned;
-  return {
-    // 先共情，再把它存成一条 #心情 备忘，随时能回看
-    text: moody ? `抱抱你 🫂 辛苦了。我先帮你记到备忘录 #心情，之后想找就能翻到。` : `真好呀，替你开心！我帮你记进 #心情 备忘啦。`,
-    action: { type: "addMemo", text, tags: ["心情"] },
-  };
+  // 两段式：先共情安慰，不擅自记录；把内容带着，问一句要不要记成 #心情
+  const text2 = moody
+    ? `抱抱你 🫂 辛苦了，我在这儿陪着你。要不要我把这句记成一条 #心情 备忘？之后想回看也在。（也可以说不记）`
+    : `真为你开心呀！🥳 要不要把这份心情记成一条 #心情 备忘？想留住这一刻就点记。`;
+  return { text: text2, action: { type: "askRecordFeeling", text } };
 }
 
 function tryAddMemo(raw: string): BrainReply | null {
