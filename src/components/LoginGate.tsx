@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import AuthForm from "./AuthForm";
+import { BloubAvatar } from "./BloubAvatar";
 
 interface LoginGateProps {
   onLogin: (username: string, password: string) => Promise<void>;
@@ -91,6 +92,19 @@ export default function LoginGate({ onLogin, onRegister, booting, error }: Login
           <LockKeyhole size={12} />
           数据保存在你的账号中，登录后自动加密同步——服务器不保存明文，换设备登录即恢复
         </div>
+
+        {/* 桌宠引导：欢迎 + 新手提示 */}
+        <div className="gate-pet">
+          <BloubAvatar state="idle" coat="mono" size={104} className="gate-pet-blob" />
+          <div className="gate-pet-bubble">
+            <b>你好呀，我是轻宜 👋</b>
+            <span>你的待办桌宠。登录后可以：把我到处拖、甩出去玩、对我说"帮我记个待办"。</span>
+          </div>
+        </div>
+        <p className="gate-notice">
+          ⚠️ 新用户注意：<b>注册后密码 = 你的数据密钥，务必牢记</b>——忘记密码无法找回数据；
+          注册即进入空工作空间，可先建第一条待办体验。
+        </p>
       </div>
 
       {/* 右侧表单区 */}

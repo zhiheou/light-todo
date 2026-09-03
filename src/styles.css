@@ -3801,3 +3801,33 @@ html[data-card-style="colorful"] .priority.p4 {
   border: 5px solid transparent;
   border-top-color: #17233a;
 }
+
+/* v3.7.3 登录页桌宠引导 */
+.gate-pet {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #d8dfe6);
+  border-radius: 14px;
+}
+.gate-pet-blob { flex: none; }
+.gate-pet-bubble { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.gate-pet-bubble b { font-size: 14px; }
+.gate-pet-bubble span { color: var(--text-2, #5d6b7a); line-height: 1.5; }
+.gate-notice {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted, #5d6b7a);
+  padding: 8px 10px;
+  background: var(--bg-2, #f6f8fa);
+  border-radius: 8px;
+}
+.gate-notice b { color: var(--danger, #dc2626); }
+@media (max-width: 900px) {
+  .gate-pet { flex-direction: row; }
+  .gate-pet-blob { width: 72px; }
+}
