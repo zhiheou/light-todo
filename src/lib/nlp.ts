@@ -56,6 +56,15 @@ function nextWeekday(day: number, now: Date): Date {
   return nextDayWith((d) => d.getDay() === day, now);
 }
 
+// 下一周的第一天（下周一 0 点）。"下周X"从这往后找。
+function startOfNextWeek(now: Date): Date {
+  const monday = startOfDay(now);
+  // 今天偏移到本周一（周一=0）
+  const offset = (now.getDay() + 6) % 7;
+  monday.setDate(monday.getDate() - offset + 7);
+  return monday;
+}
+
 // 优先级关键词：避免单字"中/低"误伤（"中国""低风险"）。保留 placeholder 提示的"高"。
 const PRIORITY_RULES: Array<{ re: RegExp; p: Priority; strip: RegExp }> = [
   { re: /(高|紧急|P1|p1)/, p: 1, strip: /(高|紧急|P1|p1)/ },
@@ -104,14 +113,18 @@ const STRIP_RULES: RegExp[] = [
   /每个工作日|工作日/g,
   /每(?:隔)?\d{1,2}天/g,
   /每天|每日/g,
-  /(?:下?周)[一二三四五六日天]/g,
+  /(?:这|本|下)?(?:周|星期)[一二三四五六日天]/g,
   /今天|明天|后天/g,
+  /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
+  /月(?:底|末)/g,
+  /(?:之前|以前|之内|以内|内)\s*(?:完成|提交|交|给|发|处理|搞定|弄好)?/g,
+  /(?:下班|中午|傍晚|晚饭|早上|上午|下午|晚上|深夜)/g,
   /\d{1,2}[月/]\d{1,2}[日号]?/g,
   /\d{1,2}[日号]/g,
   /\d{4}-\d{1,2}-\d{1,2}/g,
   /\d{1,2}[:：]\d{1,2}/g,
   /\d{1,2}点(?:半|一刻|三刻|\d{1,2}分?)?/g,
-  /上午|中午|下午|晚上|傍晚/g,
+  /\d{1,2}\s*(?:天|日)\s*(?:之?内|内)/g,
   /提醒/g,
 ];
 
@@ -181,12 +194,20 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
   }
 
   // ---- 日期规则（循环已设 dueDate 时，显式日期可覆盖）----
-  const weekdayDate = merged.match(/(下?周)([一二三四五六日天])/);
+  // 「周几」：A) "周/星期"带限定词这/本/下；B) 裸"周五"（仅当句首/空格后，避免"三"在"买三斤"误判）。
+  // 今天周五 09-04 →「周五」「这周五」=今天；「下周五」=09-11；「下周二」=09-08。
+  const weekdayDate = merged.match(/(下|这|本)?(?:周|星期)([一二三四五六日天])/);
+  const bareWeekday = merged.match(/(^|[\s,，。.!！?？:：;；(（])([一二三四五六日天])(前|之前|以前|下班前|完成|交|给|发|开会|会议|汇总|提交|汇报|截止)/);
+  const parseWeekdayAnchor = (day: number, which?: string): Date => {
+    if (which === "下") return nextWeekday(day, startOfNextWeek(now));
+    return nextWeekday(day, now); // 这/本/无词：不早于今天的最近一次（今天若是就今天）
+  };
   if (weekdayDate && !repeat) {
     const day = WEEKDAYS[weekdayDate[2]];
-    const d = nextWeekday(day, now);
-    if (weekdayDate[1] === "下周") d.setDate(d.getDate() + 7);
-    dueDate = toDateString(d);
+    dueDate = toDateString(parseWeekdayAnchor(day, weekdayDate[1]));
+  } else if (bareWeekday && !repeat && !dueDate) {
+    const day = WEEKDAYS[bareWeekday[2]];
+    if (day !== undefined) dueDate = toDateString(parseWeekdayAnchor(day, undefined));
   } else if (weekdayDate && repeat && repeat.freq === "weekly") {
     // 已由循环规则处理，避免重复覆盖
   }
@@ -217,6 +238,30 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     const d = new Date(`${isoDate[0]}T00:00:00`);
     if (!Number.isNaN(d.getTime())) dueDate = toDateString(d);
   }
+
+  // ---- "X前/之前/月底前/下班前" 截止限定词 ----
+  // 语义：说"下周二前给方案"→ 截止=下周二当天；"这周五之前交"→ 截止=这周五；
+  // "月底前"→ 本月最后一天；"下班前/中午前"→ 当天对应时刻（配合上面日期）。
+  const hasDeadlineWord = /(前|之前|以前|前完成|前交|之前交)/.test(merged);
+  const monthEnd = merged.match(/月(底|末)(前|之前|以前)?/);
+  if (monthEnd) {
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0); // 本月最后一天
+    dueDate = toDateString(last);
+  }
+  const eodQualifier = merged.match(/(下班|中午|傍晚|晚上|今天|明天|后天)?\s*(下班前|中午前|傍晚前|晚饭前)/);
+  if (eodQualifier) {
+    const q = eodQualifier[2];
+    if (!dueDate) dueDate = toDateString(now); // 无日期词则默认今天
+    // 下班前≈18:00；中午前≈12:00；傍晚前/晚饭前≈17:00
+    if (!dueTime) dueTime = q === "中午前" ? "12:00" : q === "下班前" ? "18:00" : "17:00";
+  }
+  // "X日内/之内/内"（3天内）→ 顺延 N 天
+  const withinN = merged.match(/(\d{1,2})\s*(?:天|日)\s*(?:之?内|内)/);
+  if (withinN && !dueDate) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + Number(withinN[1]));
+    dueDate = toDateString(d);
+  }
+  void hasDeadlineWord; // 锚点日期已在上面规则算好，这里不重复改
 
   // ---- 时间 ----
   const time = parseTime(merged);
