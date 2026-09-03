@@ -802,6 +802,36 @@ button {
   gap: 8px;
 }
 
+/* v3.8 G：备忘列表顶部"随手记"快捷条 */
+.memo-quickadd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg, transparent);
+  color: var(--muted);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.memo-quickadd:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.memo-quickadd input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+}
+.memo-quickadd input::placeholder {
+  color: var(--muted);
+}
+
 .memo-row {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;

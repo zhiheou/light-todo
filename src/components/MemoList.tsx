@@ -1,6 +1,14 @@
+import { useState } from "react";
 import { NotebookPen, Pencil, Pin, PinOff, Trash2, Link2 } from "lucide-react";
 import type { Memo } from "../types";
 import { memoSummary, memoTitle } from "../lib/markdown";
+
+/** 从文本里抽出 `#标签`（无空格标签），如"买牛奶 #生活" → text=买牛奶, tags=[生活] */
+function splitInlineTags(input: string): { text: string; tags: string[] } {
+  const tags = Array.from(input.matchAll(/#([^\s#]+)/g)).map((m) => m[1]);
+  const text = input.replace(/#[^\s#]+/g, "").trim();
+  return { text, tags };
+}
 
 interface MemoListProps {
   memos: Memo[];
@@ -12,6 +20,8 @@ interface MemoListProps {
   onTogglePin: (id: string) => void;
   onSelect: (memo: Memo) => void;
   onDelete: (memo: Memo) => void;
+  /** v3.8 G：顶部"随手记…"回车成卡；支持行内 #tag */
+  onQuickAdd?: (text: string, tags?: string[]) => void;
 }
 
 function formatTime(ts: number): string {
@@ -33,12 +43,23 @@ export default function MemoList({
   onTogglePin,
   onSelect,
   onDelete,
+  onQuickAdd,
 }: MemoListProps) {
+  const [draft, setDraft] = useState("");
+  const submitQuick = () => {
+    const raw = draft.trim();
+    if (!raw) return;
+    const { text, tags } = splitInlineTags(raw);
+    if (!text && tags.length === 0) return; // 只有 # 没有内容
+    onQuickAdd?.(text || raw, tags.length > 0 ? tags : undefined);
+    setDraft("");
+  };
+
   const sorted = [...memos].sort(
     (a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt,
   );
 
-  if (sorted.length === 0 && allTags.length === 0) {
+  if (sorted.length === 0 && allTags.length === 0 && !onQuickAdd) {
     return (
       <div className="empty">
         <NotebookPen size={28} />
@@ -52,6 +73,24 @@ export default function MemoList({
 
   return (
     <div>
+      {onQuickAdd && (
+        <div className="memo-quickadd">
+          <NotebookPen size={16} />
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submitQuick();
+              }
+            }}
+            placeholder="随手记…（支持 #标签，回车成卡）"
+            aria-label="随手记"
+            maxLength={500}
+          />
+        </div>
+      )}
       {allTags.length > 0 && (
         <div className="tag-filter">
           <button

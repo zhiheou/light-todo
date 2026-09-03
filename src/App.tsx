@@ -1110,6 +1110,7 @@ export default function App() {
                 setSelectedMemoId(memo.id);
               }}
               onDelete={deleteMemo}
+              onQuickAdd={handleAddMemo}
             />
           ) : view === "today" ? (
             <TodayView
