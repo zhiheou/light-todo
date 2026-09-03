@@ -206,32 +206,41 @@ function tryAddMemo(raw: string): BrainReply | null {
   return { text: `好，我记到备忘录里了：\n「${cleaned}」${tagNote}`, action: { type: "addMemo", text: cleaned, tags } };
 }
 
+/** 去掉"帮我记个待办：/给我记一下/记得…"这类外壳，保留正文（开头/结尾都会去） */
+function stripHelp(raw: string): string {
+  let s = raw;
+  // 尾部外壳：…帮我记一下 / 帮我记 / 记一下
+  s = s.replace(/\s*(?:帮我|给我|替我)?\s*(?:记(?:个)?(?:一下)?|安排一下|加一下)\s*$/i, "");
+  // 记得/别忘了… 开头（须先于通用"记"外壳，否则 记得 的"记"会被误剥）
+  s = s.replace(/^(?:记得|别忘了|记住)[\s，,：:的]*/i, "");
+  // 开头外壳（可带可不带标点/的）：帮我记个待办 / 添加个任务 / 设个提醒…
+  s = s.replace(/^(?:帮我|给我|替我)?\s*(?:记|建|添加|加|设|安排|存|放)(?:个|一个|一下)?\s*(?:待办|任务|事项|备忘录|提醒)?\s*(?:里|中|上面)?[\s，,：:的]*/i, "");
+  // 开头语气/称呼（"你好呀" 这类留给问候分支，不在建任务里剥到空）
+  s = s.replace(/^(?:请|麻烦)\s*/i, "");
+  return s.replace(/^[\s,，。.!！?？:：;；-]+|[\s,，。.!！?？:：;；-]+$/g, "").trim();
+}
+
 /** 判断是否"建待办/任务"（自然语言日期交给 parseQuickAdd） */
 function tryAddTask(raw: string): BrainReply | null {
-  // 命中"建/加/记一下/安排"等动作意图
-  const trigger = /(建|添加|加个|记一下|记个|记下来|安排|提醒我|帮我约|帮我排|设个|新建|创建|放一个|存个)/.test(raw);
-  if (!trigger) return null;
-  // 抽取干净标题：去掉"帮我/建一个/待办"等引导词（保留时间词，交给 NLP 解析）
-  const cleaned = raw
-    .replace(/^(请|麻烦|你|好呀|好的|可以|那个|一下)/, "")
-    .replace(/(建一个|建个|添加一个|添加|记一下|记个|记下来|安排一下|安排个|设个|新建|创建|提醒我|帮我记|帮我|请你|给我|替我)/g, " ")
-    .replace(/(待办|任务|个会|会议|一个事项|事项)/g, " ")
-    .replace(/[:：]\s*$/, "")
-    .replace(/[，。！？\s]+/g, " ")
-    .trim();
-  // 抽取后没有实际内容（纯"帮我记个待办"）→ 引导补内容，不建空/无意义任务
-  const fillers = /^(呢|啊|吧|呀|哦|嘛|吗|个|一下|了)*$/;
+  // 去掉外壳（开头/结尾），其余原样交给 NLP 提取 标题/时间/循环
+  const cleaned = stripHelp(raw);
+  const now = new Date();
+  const fillers = /^(呢|啊|吧|呀|哦|嘛|吗|个|一下|了|的|好|嗯)*$/;
+  // 纯"帮我记个待办"（剥完没内容）→ 引导补内容，不建空任务
   if (!cleaned || fillers.test(cleaned)) {
     return { text: "想记什么待办呀？跟我说下内容就行，比如「明天下午3点交周报」。" };
   }
-  // 判断是否有待办语义：待办标记词，或文本能解析出时间/日期
-  const hasMarker = /(待办|任务|个会|会议|开会|约|安排|事件|事项|提醒|目标|行程|下午|上午|今晚|明天|今天|后天|周[一二三四五六日天]|月\d|点|号|日)/.test(raw);
-  const probe = parseQuickAdd({ title: cleaned, notes: "", now: new Date() });
-  const hasTime = probe.dueDate !== "" || probe.dueTime !== "";
-  // 既不具待办语义、又解析不出时间 → 不当建任务（引导聚焦待办）
-  if (!hasMarker && !hasTime) return null;
-  // 交给 NLP：自动识别 明天/下午4点/每周一 等
-  const parsed = parseQuickAdd({ title: cleaned, notes: "", now: new Date() });
+  const parsed = parseQuickAdd({ title: cleaned, notes: "", now });
+  // 明确"要建任务"的信号：原句有建动作词，或（解析出时间/日期 且 像待办内容）。
+  // 避免"今天天气不错"这类闲聊被误当成任务（今天也会被 NLP 填成日期）。
+  const hasVerb = /(帮我记|给我记|记一下|记个|记下来|帮我记个|安排|添加|新建|创建|设个|提醒我|帮我约|帮我排|帮我建|建个|加个|存个|放个|记得|记着)/.test(raw);
+  const hasTime = !!parsed.dueDate || !!parsed.dueTime;
+  const todoMark = /(待办|任务|开会|会议|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|给|去|看|修|准备|打卡|回复|周报|文案|材料|东西|事情)/.test(cleaned);
+  if (!hasVerb && !(hasTime && todoMark)) return null; // 纯闲聊/无建意，交后续分支
+  // NLP 剥完时间后标题为空或纯虚词（如"明天4点"无实义）→ 引导
+  if (!parsed.title || fillers.test(parsed.title)) {
+    return { text: "想记什么待办呀？跟我说下内容就行，比如「明天下午3点交周报」。" };
+  }
   const nice = parsed.dueDate
     ? `${parsed.dueDate}${parsed.dueTime ? " " + parsed.dueTime : ""}`
     : "未设日期";
@@ -328,24 +337,43 @@ export function readConfirm(raw: string): { yes: boolean } | null {
 
 /** 明显偏离待办/备忘领域的话题（安全 & 省钱：不答、不发给 AI） */
 const OFF_TOPIC = [
-  "代码", "程序", "python", "javascript", "java", "写个函数", "debug", "bug",
-  "帮我写", "生成图片", "画一幅", "写作文", "翻译一下", "网站", "爬虫",
-  "加密货币", "股票预测", "彩票", "赌博", "违法", "破解", "黑客", "暴力",
-  "色情", "成人", "毒品", "武器",
+  "代码", "程序", "编程", "python", "javascript", "java", "写个函数", "写个脚本", "debug", "bug",
+  "教我写", "怎么写", "帮我写", "实现一个", "生成代码", "写代码",
+  "生成图片", "画一幅", "画个", "ps 一下", "修图", "生成视频",
+  "写作文", "写文章", "写小说", "写诗", "翻译一下", "翻成",
+  "爬虫", "网页制作", "做网页",
+  "股票预测", "加密货币", "比特币", "推荐股票", "彩票",
+  "赌博", "违法", "破解", "黑客", "入侵", "攻击", "暴力",
+  "色情", "成人", "毒品", "武器", "钓鱼", "诈骗",
+  "数学题", "解方程", "算一下这个", "物理题", "化学", "作业",
+  "新闻", "天气怎么样", "今天几号农历", "帮我查",
+  "怎么做菜", "菜谱", "推荐电影", "推荐书", "推荐音乐", "讲个故事", "讲个笑话",
 ];
 const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
 
+// 编程语言/技术名词单独放（不能无条件拦截——"和后端开会"是合法待办）。
+// 只在"出现 写/做/实现/教/生成 这类动作意图"时才判离题。
+const CODE_NOUN_RE = /(c\+\+|c#|c语言|rust|go语言|前端|后端|数据库|接口|算法|链表|数组|函数|变量|爬虫|脚本|代码|程序|网站)/i;
+const BUILD_VERB_RE = /(写|做|实现|编|教|生成|给我写|帮我写|搞个|设计|开发|搭一个|建个网站|修)/;
+
 /** 是否偏离领域（true = 不该答，只礼貌回绝并拉回待办） */
 export function isOffTopic(raw: string): boolean {
-  if (OFF_TOPIC_RE.test(raw)) return true;
-  // 明显的"闲聊/问答"但完全没提任务备忘 → 不发给 AI 省 token（本地答兜底）
+  const t = raw.trim();
+  if (OFF_TOPIC_RE.test(t)) return true;
+  // 明确"动手做技术活"（写代码/做网站/教编程）→ 拒绝进 AI；但有时间/待办语义的"和后端开会"不误伤
+  const hasTime = /(明天|今天|后天|周[一二三四五六日天]|\d{1,2}月|\d{1,2}日|上午|下午|晚上|今晚|\d+点|\d+:\d+|号)/.test(t);
+  const hasTodoWord = /(待办|任务|开会|会议|约|安排|提醒|行程|备忘|去|到|看|交|汇报|面试|出差)/.test(t);
+  if (BUILD_VERB_RE.test(t) && CODE_NOUN_RE.test(t) && !hasTime && !hasTodoWord) return true;
+  // 明显的"帮我做件事/答个题/查个东西"但没提任务/备忘/情绪 → 拒绝进 AI
+  const SERVICE_REQ = /^(帮我|请|给我|能不能|可以|麻烦|帮忙|帮我弄|搞)/;
+  if (SERVICE_REQ.test(t) && !hasTodoWord && !/(心情|累|烦|难过|焦虑|开心)/.test(t)) return true;
   return false;
 }
 
 /** 离题时的统一回绝话术（不消耗 AI） */
 export function offTopicReply(): BrainReply {
   return {
-    text: "这些我可答不上来——我是轻待办的小助理，只擅长帮你管待办和备忘。要不要试试「今天有什么安排」或「帮我记个待办」？",
+    text: "这些我可帮不上忙——我是轻待办的小助理，只擅长管你的待办和备忘，也能陪你聊聊心情。要不要试试「今天有什么安排」，或跟我说「帮我记个待办」？",
   };
 }
 
@@ -355,18 +383,19 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (!text) return { text: "嗯？我在听。你可以说'帮我建个待办'或'记到备忘录'。" };
   // 离题优先拦（不建任务不查询，直接拉回领域）
   if (isOffTopic(text)) return offTopicReply();
+  // 纯问候/称呼优先（避免"你好呀"被建任务分支误当空内容引导）
+  const greet = tryGreet(text, ctx);
+  if (greet) return greet;
   const t = tryDelete(text, ctx);
   if (t) return t;
   const q = tryQuery(text, ctx);
   if (q) return q;
   const memo = tryAddMemo(text);
   if (memo) return memo;
-  const task = tryAddTask(text);
-  if (task) return task;
   const feel = tryFeeling(text);
   if (feel) return feel;
-  const greet = tryGreet(text, ctx);
-  if (greet) return greet;
+  const task = tryAddTask(text);
+  if (task) return task;
   return {
     text: "嗯……我暂时没太懂这句。（当前我是本地小助手，还在学习更多玩法）你可以试试：\n• 「明天下午3点开会」→ 我帮你建待办\n• 「把这个记到备忘录」\n• 「今天有什么安排」",
   };
