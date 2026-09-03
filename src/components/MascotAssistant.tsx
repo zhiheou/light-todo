@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Send, X } from "lucide-react";
+import { Send, Trash2, X } from "lucide-react";
 import type { Mode, MascotMood, PetExpressionId, PetSkin, Task } from "../types";
 import type { StateId } from "../lib/bloub/states";
 import type { TaskDraft } from "./AddDialog";
@@ -124,6 +124,8 @@ export default function MascotAssistant({
   const [pendingDelete, setPendingDelete] = useState<{ candidateId: string } | null>(null);
   /** v3.8 B：正在等用户"允许删除"授权（首次删待办）；记录了要删的那条 */
   const [awaitingGrant, setAwaitingGrant] = useState<{ candidateId: string } | null>(null);
+  /** v3.8 D：防刷冷却——距上次发消息不足 8s 时忽略新消息 */
+  const lastSentAt = useRef(0);
   const [unread, setUnread] = useState(0);
   /** 配置面板：形态/皮肤 */
   const [configOpen, setConfigOpen] = useState(false);
@@ -231,6 +233,15 @@ export default function MascotAssistant({
   function closePanel() {
     setOpen(false);
     setMood("idle");
+  }
+
+  /** v3.8 D：清空当前空间对话记录（含清掉待确认/授权状态） */
+  function clearChat() {
+    setChat((prev) => ({ ...prev, [mode]: [] }));
+    setPendingDelete(null);
+    setAwaitingGrant(null);
+    setMood("idle");
+    setUnread(0);
   }
 
   function runAction(action: BrainAction | undefined) {
@@ -394,6 +405,18 @@ export default function MascotAssistant({
       ? "你是「轻宜」，一个桌面宠物小助理（个人空间）。语气可爱、简短、有温度。你不查看用户的具体数据，只做轻松闲聊与鼓励。当用户在倾诉心情/压力时，先共情安抚，不要急着给建议。"
       : `你是「轻宜」，一个桌面宠物小助理（工作空间）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当用户在倾诉心情/压力时，先共情安抚，不要急着给建议。当前工作待办：${summary.join("；") || "(空)"}。`;
 
+    // v3.8 D：AI 请求冷却——距上次发 AI 请求不足 8s 则跳过（本地动作/离题拦截不受限）
+    const nowT = Date.now();
+    if (nowT - lastSentAt.current < 8000) {
+      window.setTimeout(() => {
+        setThinking(false);
+        setMood("idle");
+        pushBot("你发得好快呀～我还在喘气，稍微等一下再聊哦（冷却 8 秒）。");
+      }, 150);
+      return;
+    }
+    lastSentAt.current = nowT;
+
     window.setTimeout(async () => {
       try {
         const resp = await fetch("/api/chat", {
@@ -499,6 +522,17 @@ export default function MascotAssistant({
               <b>{persona.name}</b>
               <span>{persona.sub} · 本机智能 · 数据不出空间</span>
             </div>
+            {msgs.length > 0 && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="清空对话"
+                title="清空对话"
+                onClick={clearChat}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
             <button type="button" className="icon-button" aria-label="关闭" onClick={closePanel}>
               <X size={16} />
             </button>
@@ -559,6 +593,7 @@ export default function MascotAssistant({
                 if (e.key === "Enter") send();
               }}
               placeholder={`对${persona.name}说点什么…`}
+              maxLength={500}
               aria-label="输入想说的话"
             />
             <button type="button" aria-label="发送" onClick={() => send()} disabled={!input.trim() || thinking}>

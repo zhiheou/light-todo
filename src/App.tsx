@@ -846,6 +846,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [lockPersonal, requestPersonal]);
 
+  const pushMascot = useCallback((text: string) => {
+    setMascotNudges((prev) => [...prev.slice(-4), { id: Date.now() + Math.random(), text }]);
+  }, []);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = Date.now();
@@ -854,15 +858,13 @@ export default function App() {
         if (new Date(task.remindAt).getTime() <= now && !notified.current.has(task.id)) {
           notified.current.add(task.id);
           showToast(`提醒：${task.title}`);
+          // v3.8 D：到点提醒同步进吉祥物聊天（小字气泡），不只右上角 toast
+          pushMascot(`⏰ 到点啦：「${task.title}」`);
         }
       }
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [showToast]);
-
-  const pushMascot = useCallback((text: string) => {
-    setMascotNudges((prev) => [...prev.slice(-4), { id: Date.now() + Math.random(), text }]);
-  }, []);
+  }, [showToast, pushMascot]);
 
   // 登录成功（显式登录 / 刷新自动登录都会置 authState="in"）后，问候一次 + 汇总当天安排
   const mascotCtx = useMemo<BrainCtx>(
