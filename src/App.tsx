@@ -422,14 +422,14 @@ export default function App() {
   );
 
   const handleAddMemo = useCallback(
-    (text: string) => {
+    (text: string, tags?: string[]) => {
       const raw = text.trim();
       if (raw === "::vault") {
         setDialog(null);
         void requestPersonal();
         return;
       }
-      const memo = makeMemo({ text: raw });
+      const memo = makeMemo({ text: raw, ...(tags && tags.length > 0 ? { tags } : {}) });
       if (mode === "work") setWorkMemos((prev) => [memo, ...prev]);
       else setPersonalMemos((prev) => [memo, ...prev]);
       // 新增只加入列表，不自动打开右侧编辑抽屉（要编辑时点行即可）

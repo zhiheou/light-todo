@@ -36,7 +36,7 @@ interface MascotAssistantProps {
   mode: Mode;
   tasks: Task[];
   onAddTask: (draft: TaskDraft) => void;
-  onAddMemo: (text: string) => void;
+  onAddMemo: (text: string, tags?: string[]) => void;
   onOpenTask: (task: Task) => void;
   onDeleteTask: (task: Task) => void;
   /** v3.8 B：当前空间是否已授权吉祥物删待办 */
@@ -252,7 +252,7 @@ export default function MascotAssistant({
         break;
       }
       case "addMemo":
-        onAddMemo(action.text);
+        onAddMemo(action.text, action.tags);
         triggerAct("done");
         break;
       case "openTask": {
@@ -391,8 +391,8 @@ export default function MascotAssistant({
           return `${t.completed ? "✓" : "·"}${t.title}(${when})`;
         });
     const system = personal
-      ? "你是「轻宜」，一个桌面宠物小助理（个人空间）。语气可爱、简短、有温度。你不查看用户的具体数据，只做轻松闲聊与鼓励。"
-      : `你是「轻宜」，一个桌面宠物小助理（工作空间）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当前工作待办：${summary.join("；") || "(空)"}。`;
+      ? "你是「轻宜」，一个桌面宠物小助理（个人空间）。语气可爱、简短、有温度。你不查看用户的具体数据，只做轻松闲聊与鼓励。当用户在倾诉心情/压力时，先共情安抚，不要急着给建议。"
+      : `你是「轻宜」，一个桌面宠物小助理（工作空间）。语气可爱、简短、有温度。可以基于用户待办摘要帮忙安排/提醒，但建任务、删除等操作你只需口头回应确认，不用真的执行。当用户在倾诉心情/压力时，先共情安抚，不要急着给建议。当前工作待办：${summary.join("；") || "(空)"}。`;
 
     window.setTimeout(async () => {
       try {

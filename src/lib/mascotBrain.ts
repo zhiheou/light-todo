@@ -23,7 +23,7 @@ export interface BrainCtx {
 
 export type BrainAction =
   | { type: "addTask"; parsed: QuickAddParse }
-  | { type: "addMemo"; text: string }
+  | { type: "addMemo"; text: string; tags?: string[] }
   | { type: "openTask"; id: string }
   | { type: "confirm"; candidateId: string }
   | { type: "deleteTask"; id: string };
@@ -150,6 +150,25 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
 }
 
 /** 判断文本是否"建备忘录" */
+/** 心情词库：情绪宣泄类句子（"好烦/累死了/好开心…"）当作一次心情备忘（自动带 #心情 标签） */
+const FEELING_WORDS = /(好烦|烦死|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服)/;
+function tryFeeling(raw: string): BrainReply | null {
+  if (!FEELING_WORDS.test(raw)) return null;
+  const cleaned = raw
+    .replace(/^(我|我好|感觉|今天|最近)/, "")
+    .replace(/(记到|记一下|备忘录|待办)/g, "")
+    .replace(/[，。！？\s]+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  const moody = /(烦|累|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|气|暴躁|烦躁|郁闷|不开心|emo|抑郁|孤独|失眠|撑不住|撑不下去)/.test(raw);
+  const text = cleaned.length > 24 ? cleaned.slice(0, 24) + "…" : cleaned;
+  return {
+    // 先共情，再把它存成一条 #心情 备忘，随时能回看
+    text: moody ? `抱抱你 🫂 辛苦了。我先帮你记到备忘录 #心情，之后想找就能翻到。` : `真好呀，替你开心！我帮你记进 #心情 备忘啦。`,
+    action: { type: "addMemo", text, tags: ["心情"] },
+  };
+}
+
 function tryAddMemo(raw: string): BrainReply | null {
   const m = raw.match(/(?:记到|写进|存到|加到|放进)?(?:备忘录|记事本|备注)(?:里|中|上面)?[:：]?\s*(.+)/);
   if (!m) return null;
@@ -157,7 +176,10 @@ function tryAddMemo(raw: string): BrainReply | null {
   if (!text) return null;
   // 去掉结尾语气词
   const cleaned = text.replace(/^(帮我|请|麻烦)/, "").trim();
-  return { text: `好，我记到备忘录里了：\n「${cleaned}」`, action: { type: "addMemo", text: cleaned } };
+  // 若这条备忘本身像在宣泄心情，自动带上 #心情 标签
+  const tags = FEELING_WORDS.test(cleaned) ? ["心情"] : undefined;
+  const tagNote = tags ? "（已标 #心情）" : "";
+  return { text: `好，我记到备忘录里了：\n「${cleaned}」${tagNote}`, action: { type: "addMemo", text: cleaned, tags } };
 }
 
 /** 判断是否"建待办/任务"（自然语言日期交给 parseQuickAdd） */
@@ -317,6 +339,8 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (memo) return memo;
   const task = tryAddTask(text);
   if (task) return task;
+  const feel = tryFeeling(text);
+  if (feel) return feel;
   const greet = tryGreet(text, ctx);
   if (greet) return greet;
   return {
