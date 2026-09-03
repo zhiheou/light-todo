@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
   <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
-  <img src="https://img.shields.io/badge/version-v3.5-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-v3.8.1-blue?style=flat-square" alt="Version">
 </p>
 
 ---
@@ -169,6 +169,11 @@ src-tauri/            Tauri 桌面壳（存档）
 | v3.3 | 2026-09-01 | UI 大改版：今日多形态（清单/维度/时间线/日程）+ 日历周/月/年 + 目标管理 + 维度体系 + 可切换外观（4 主题色×4 字体×3 卡片×4 字号）+ 桌面/移动端自适应 |
 | v3.4 | 2026-09-02 | 交互打磨：登录落「今日」+ 今日含未设日期 + 侧栏数字随显示已完成联动 + 修「全部」滑不动 + 编辑标题自动识别日期时间 + 快捷日期 chip + 编辑点外部自动保存 + 回顾统计可点跳转 + 移除备份/同步/恢复 |
 | v3.5 | 2026-09-02 | 吉祥物小助理：会动圆脸机器人（呼吸/眨眼/瞳孔跟随/情绪态）+ 悬浮聊天面板 + 双助理隔离（工作=小轻/个人=小安）+ 本地小脑对话建待办/记备忘/查安排/删除确认 + 登录主动问候 + 闲置搭话 |
+| v3.6 | 2026-09-03 | 桌宠化：bloub 变形引擎全移植（蛋/六边形/星爆/感叹号…真形变）+ 直接写 DOM 性能重构 |
+| v3.7 | 2026-09-03 | 桌面宠物闭环：默认黑白大号 + 闲置随机变形 + 皮肤/行为设置 + 隐藏召回 + 甩飞撞边弹跳 + 灵动小字 + DeepSeek 真 AI + 脱敏交互日志 |
+| v3.7.1-3 | 2026-09-03 | 对话聚焦/防滥用 + 面板悬宠上方 + 尺寸随设备 + 登录页桌宠引导 |
+| v3.8 | 2026-09-03 | 桌宠陪伴升级：A 甩飞/遮挡/屏占比/闲置 Bug 修复 + B 删除授权（首次记住）+ C 情绪陪伴（先共情→询问→记 #心情）+ D 防刷（AI 8s 冷却/500 上限/清空对话/到点提醒进聊天）+ E 新用户无日期引导 + F 勾选动效 + G flomo 随手记条 |
+| v3.8.1 | 2026-09-03 | 复盘修正：桌宠卡死硬 bug（抓取取消飞行+看门狗）+ 写代码拦截加固（含 c++ 写链表，合法"后端开会"不误伤）+ 建待办标题不残留 + 问候优先 + 删除行动画 + 聊天输入框矮窗越屏修复 |
 
 ## 📜 开源协议
 
