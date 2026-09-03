@@ -25,49 +25,31 @@ export function makeTask(partial: Partial<Task> = {}): Task {
   };
 }
 
-function at(
-  now: Date,
-  days: number,
-  time: string,
-): { dueDate: string; dueTime: string; remindAt: string } {
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
-  const [hour, minute] = time.split(":").map(Number);
-  d.setHours(hour, minute, 0, 0);
-  return { dueDate: toDateString(d), dueTime: time, remindAt: d.toISOString() };
-}
-
 export function seedTasks(mode: Mode, now: Date): Task[] {
+  void now; // 引导任务不设日期（绝不逾期）；保留签名兼容 loadTasks 调用
   const base = {
     notes: "",
     completed: false,
+    dueDate: "",
+    dueTime: "",
+    remindAt: "",
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
 
   if (mode === "work") {
-    const a = at(now, 0, "17:00");
-    const b = at(now, 0, "14:00");
-    const c = at(now, 1, "10:00");
-    const d = at(now, 0, "15:00");
-    const e = at(now, 3, "09:30");
+    // v3.8 E：新用户引导任务——全无日期、绝不逾期，边玩边学会用桌宠与建待办
     return [
-      { ...base, ...a, id: crypto.randomUUID(), title: "提交周报", priority: 1 as const },
-      { ...base, ...b, id: crypto.randomUUID(), title: "回复客户邮件", priority: 2 as const },
-      { ...base, ...c, id: crypto.randomUUID(), title: "整理项目进度", priority: 2 as const },
-      { ...base, ...d, id: crypto.randomUUID(), title: "预订会议室", priority: 3 as const },
-      { ...base, ...e, id: crypto.randomUUID(), title: "阅读行业文章", priority: 4 as const },
+      { ...base, id: crypto.randomUUID(), title: "试试右击我 → 说说话 / 玩动作", priority: 4 as const },
+      { ...base, id: crypto.randomUUID(), title: "左键拖住我用力甩甩看 🚀", priority: 4 as const },
+      { ...base, id: crypto.randomUUID(), title: "点我聊天，试试「明天下午4点开会」", priority: 4 as const },
     ];
   }
 
-  const a = at(now, 0, "19:00");
-  const b = at(now, 0, "20:30");
-  const c = at(now, 2, "09:30");
-  const d = at(now, 1, "18:00");
+  // 个人空间：纯生活引导，无日期不逾期（v3.8 E）
   return [
-    { ...base, ...a, id: crypto.randomUUID(), title: "取快递", priority: 2 as const },
-    { ...base, ...b, id: crypto.randomUUID(), title: "给家里打电话", priority: 1 as const },
-    { ...base, ...c, id: crypto.randomUUID(), title: "预约体检", priority: 3 as const },
-    { ...base, ...d, id: crypto.randomUUID(), title: "买本周食材", priority: 2 as const },
+    { ...base, id: crypto.randomUUID(), title: "这是你的个人空间 🏠", priority: 4 as const },
+    { ...base, id: crypto.randomUUID(), title: "点右上角 + 建第一条待办", priority: 4 as const },
   ];
 }
 
