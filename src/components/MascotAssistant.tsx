@@ -11,7 +11,9 @@ import {
   answer,
   cancelDelete,
   confirmDelete,
+  isGrantDeleteIntent,
   isOffTopic,
+  needDeleteGrantReply,
   offTopicReply,
   readConfirm,
   type BrainAction,
@@ -37,6 +39,10 @@ interface MascotAssistantProps {
   onAddMemo: (text: string) => void;
   onOpenTask: (task: Task) => void;
   onDeleteTask: (task: Task) => void;
+  /** v3.8 B：当前空间是否已授权吉祥物删待办 */
+  deleteGranted: boolean;
+  /** v3.8 B：把"删除授权"落库（localStorage，按空间） */
+  onGrantDelete: () => void;
   /** App 侧主动推送的消息（登录问候/闲置搭话/到点提醒） */
   nudges: MascotNudge[];
 }
@@ -106,6 +112,8 @@ export default function MascotAssistant({
   onAddMemo,
   onOpenTask,
   onDeleteTask,
+  deleteGranted,
+  onGrantDelete,
   nudges,
 }: MascotAssistantProps) {
   const [open, setOpen] = useState(false);
@@ -114,6 +122,8 @@ export default function MascotAssistant({
   const [thinking, setThinking] = useState(false);
   const [chat, setChat] = useState<Record<Mode, Msg[]>>({ work: [], personal: [] });
   const [pendingDelete, setPendingDelete] = useState<{ candidateId: string } | null>(null);
+  /** v3.8 B：正在等用户"允许删除"授权（首次删待办）；记录了要删的那条 */
+  const [awaitingGrant, setAwaitingGrant] = useState<{ candidateId: string } | null>(null);
   const [unread, setUnread] = useState(0);
   /** 配置面板：形态/皮肤 */
   const [configOpen, setConfigOpen] = useState(false);
@@ -251,6 +261,14 @@ export default function MascotAssistant({
         break;
       }
       case "confirm":
+        // v3.8 B：第一次删待办需先授权（按空间记住）。未授权 → 不进入删除确认，
+        // 先请求授权；授权后再走正常"确认删这条"。
+        if (!deleteGranted) {
+          setAwaitingGrant({ candidateId: action.candidateId });
+          setMood("listening");
+          pushBot(needDeleteGrantReply().text);
+          return;
+        }
         setPendingDelete({ candidateId: action.candidateId });
         setMood("listening");
         break;
@@ -268,6 +286,36 @@ export default function MascotAssistant({
     const text = (raw ?? input).trim();
     if (!text || thinking) return;
     setInput("");
+    // v3.8 B：若正在等"允许删除"授权，先判断这句是不是授权
+    if (awaitingGrant) {
+      const isGrant = isGrantDeleteIntent(text);
+      const isNo = /^(不|不要|别|取消|算了|等等|不了)/.test(text.trim());
+      if (isGrant) {
+        setChat((prev) => ({
+          ...prev,
+          [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+        }));
+        onGrantDelete();
+        const cand = awaitingGrant.candidateId;
+        setAwaitingGrant(null);
+        setPendingDelete({ candidateId: cand }); // 授权后进入正常"确认删这条"
+        setMood("listening");
+        pushBot("好，授权记住了。确认要删吗？删除后可以撤销。");
+        return;
+      }
+      if (isNo) {
+        setChat((prev) => ({
+          ...prev,
+          [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }],
+        }));
+        setAwaitingGrant(null);
+        setMood("idle");
+        pushBot(cancelDelete().text);
+        return;
+      }
+      // 其它回复先不当授权，也不打断授权等待
+      return;
+    }
     // 若有待确认删除，先判断是/否
     if (pendingDelete) {
       const v = readConfirm(text);
@@ -490,6 +538,14 @@ export default function MascotAssistant({
             <div className="mascot-confirm">
               <span>这个操作需要你确认：</span>
               <button type="button" onClick={() => send("是，删掉")}>删除</button>
+              <button type="button" className="secondary" onClick={() => send("不删")}>取消</button>
+            </div>
+          )}
+
+          {awaitingGrant && (
+            <div className="mascot-confirm">
+              <span>首次帮你删待办需要授权：</span>
+              <button type="button" onClick={() => send("允许删除")}>允许删除</button>
               <button type="button" className="secondary" onClick={() => send("不删")}>取消</button>
             </div>
           )}

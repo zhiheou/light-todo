@@ -147,6 +147,15 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   /** 吉祥物主动推送消息队列（登录问候/闲置搭话/到点提醒） */
   const [mascotNudges, setMascotNudges] = useState<MascotNudge[]>([]);
+  /** v3.8 B：吉祥物"删待办"首次授权（按空间各自独立，localStorage 持久化） */
+  const [deleteGranted, setDeleteGranted] = useState<Record<Mode, boolean>>(() => ({
+    work: localStorage.getItem("lighttodo:pet-delete-grant:v1.work") === "1",
+    personal: localStorage.getItem("lighttodo:pet-delete-grant:v1.personal") === "1",
+  }));
+  const grantDeleteToAssistant = useCallback((m: Mode) => {
+    localStorage.setItem(`lighttodo:pet-delete-grant:v1.${m}`, "1");
+    setDeleteGranted((prev) => ({ ...prev, [m]: true }));
+  }, []);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
   const remoteSaveTimer = useRef<number | null>(null);
@@ -1219,6 +1228,8 @@ export default function App() {
           setSelectedId(task.id);
         }}
         onDeleteTask={deleteTask}
+        deleteGranted={deleteGranted[mode]}
+        onGrantDelete={() => grantDeleteToAssistant(mode)}
         nudges={mascotNudges}
       />
     </div>

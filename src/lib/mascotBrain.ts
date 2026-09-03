@@ -255,6 +255,22 @@ export function cancelDelete(): BrainReply {
   return { text: "好，那我不动它。" };
 }
 
+// ---------- v3.8 B 删除授权：第一次让 AI 帮忙删待办，需用户先授权 ----------
+
+/** 首次请求"让 AI 删除待办"时，引导用户授权的话术（授权一次，此后不再问） */
+export function needDeleteGrantReply(): BrainReply {
+  return {
+    text: "这是我第一次帮你删待办，得先请你授权：回我一句「允许删除」就行（只需授权一次，以后删待办我就不再问了）。",
+  };
+}
+
+/** 判断用户这句话是不是"允许/同意 AI 删待办"的授权意图 */
+export function isGrantDeleteIntent(raw: string): boolean {
+  return /^(我)?(允许|同意|授权|准了|可以|好|好的|行|ok|嗯|对)(你)?(帮我)?(删|删除|删待办|删任务)/.test(
+    raw.trim(),
+  );
+}
+
 /** 判断用户回复是否是针对待确认删除的"是/否"，返回确认方向或 null */
 export function readConfirm(raw: string): { yes: boolean } | null {
   const yes = /^(是的?|是|确定|确认|删|删吧|好|好的|行|可以|去吧|嗯|对)/.test(raw.trim());
