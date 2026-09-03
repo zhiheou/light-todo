@@ -167,18 +167,22 @@ function tryAddTask(raw: string): BrainReply | null {
   if (!trigger) return null;
   // 抽取干净标题：去掉"帮我/建一个/待办"等引导词（保留时间词，交给 NLP 解析）
   const cleaned = raw
-    .replace(/^(帮我|请|麻烦|你|好呀|好的|可以)/, "")
-    .replace(/(建一个|建个|添加一个|添加|记一下|记个|记下来|安排一下|安排个|设个|新建|创建|提醒我|帮我记|帮我)/g, " ")
-    .replace(/(待办|任务|个会|会议)/g, " ")
+    .replace(/^(请|麻烦|你|好呀|好的|可以|那个|一下)/, "")
+    .replace(/(建一个|建个|添加一个|添加|记一下|记个|记下来|安排一下|安排个|设个|新建|创建|提醒我|帮我记|帮我|请你|给我|替我)/g, " ")
+    .replace(/(待办|任务|个会|会议|一个事项|事项)/g, " ")
     .replace(/[:：]\s*$/, "")
-    .replace(/\s+/g, " ")
+    .replace(/[，。！？\s]+/g, " ")
     .trim();
-  if (!cleaned) return null;
+  // 抽取后没有实际内容（纯"帮我记个待办"）→ 引导补内容，不建空/无意义任务
+  const fillers = /^(呢|啊|吧|呀|哦|嘛|吗|个|一下|了)*$/;
+  if (!cleaned || fillers.test(cleaned)) {
+    return { text: "想记什么待办呀？跟我说下内容就行，比如「明天下午3点交周报」。" };
+  }
   // 判断是否有待办语义：待办标记词，或文本能解析出时间/日期
   const hasMarker = /(待办|任务|个会|会议|开会|约|安排|事件|事项|提醒|目标|行程|下午|上午|今晚|明天|今天|后天|周[一二三四五六日天]|月\d|点|号|日)/.test(raw);
   const probe = parseQuickAdd({ title: cleaned, notes: "", now: new Date() });
   const hasTime = probe.dueDate !== "" || probe.dueTime !== "";
-  // 既不具待办语义、又解析不出时间 → 不当建任务
+  // 既不具待办语义、又解析不出时间 → 不当建任务（引导聚焦待办）
   if (!hasMarker && !hasTime) return null;
   // 交给 NLP：自动识别 明天/下午4点/每周一 等
   const parsed = parseQuickAdd({ title: cleaned, notes: "", now: new Date() });
@@ -260,10 +264,35 @@ export function readConfirm(raw: string): { yes: boolean } | null {
   return null;
 }
 
+/** 明显偏离待办/备忘领域的话题（安全 & 省钱：不答、不发给 AI） */
+const OFF_TOPIC = [
+  "代码", "程序", "python", "javascript", "java", "写个函数", "debug", "bug",
+  "帮我写", "生成图片", "画一幅", "写作文", "翻译一下", "网站", "爬虫",
+  "加密货币", "股票预测", "彩票", "赌博", "违法", "破解", "黑客", "暴力",
+  "色情", "成人", "毒品", "武器",
+];
+const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
+
+/** 是否偏离领域（true = 不该答，只礼貌回绝并拉回待办） */
+export function isOffTopic(raw: string): boolean {
+  if (OFF_TOPIC_RE.test(raw)) return true;
+  // 明显的"闲聊/问答"但完全没提任务备忘 → 不发给 AI 省 token（本地答兜底）
+  return false;
+}
+
+/** 离题时的统一回绝话术（不消耗 AI） */
+export function offTopicReply(): BrainReply {
+  return {
+    text: "这些我可答不上来——我是轻待办的小助理，只擅长帮你管待办和备忘。要不要试试「今天有什么安排」或「帮我记个待办」？",
+  };
+}
+
 /** 主入口：把用户一句话变成回复（可带动作） */
 export function answer(raw: string, ctx: BrainCtx): BrainReply {
   const text = raw.trim();
   if (!text) return { text: "嗯？我在听。你可以说'帮我建个待办'或'记到备忘录'。" };
+  // 离题优先拦（不建任务不查询，直接拉回领域）
+  if (isOffTopic(text)) return offTopicReply();
   const t = tryDelete(text, ctx);
   if (t) return t;
   const q = tryQuery(text, ctx);

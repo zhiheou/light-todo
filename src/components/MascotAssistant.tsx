@@ -11,6 +11,8 @@ import {
   answer,
   cancelDelete,
   confirmDelete,
+  isOffTopic,
+  offTopicReply,
   readConfirm,
   type BrainAction,
   type BrainCtx,
@@ -47,10 +49,12 @@ const PERSONA: Record<Mode, { name: string; label: string; sub: string }> = {
 const SUGGESTIONS = ["帮我记个待办：明天下午4点开会", "把这段话记到备忘录：买牛奶", "今天有什么安排？"];
 
 const PANEL_W = 320;
+const PANEL_H = 360; // 估算面板高，用于"上方是否有足够空间"的粗判
 
 /**
- * 聊天气泡锚在桌宠右上方；桌宠靠右时自动往左收；桌宠靠底时往上弹。
- * petPos 缺省时退回右下角。
+ * 聊天气泡锚在桌宠旁；优先让面板**悬在宠物正上方**（面板底边贴宠物顶），这样底部的
+ * 输入框在宠物上面、永远可见不被挡；宠物贴屏顶没空间时才放宠物下方。
+ * 靠右自动往左收。petPos 缺省退回右下角。
  */
 function panelStyle(
   petPos: { x: number; y: number; w: number; h: number } | null,
@@ -61,17 +65,22 @@ function panelStyle(
   const vh = window.innerHeight;
   const margin = 12;
   if (!petPos) return { right: margin, bottom: 92 };
-  // 期望面板锚在宠物右上：面板 left = 宠物右边缘 + margin
+  // 左右：默认宠物右侧，放不下翻左侧
   let left = petPos.x + petPos.w + margin;
-  // 若右边放不下，放左边
   if (left + PANEL_W > vw - margin) left = petPos.x - PANEL_W - margin;
-  // 仍放不下（太窄）→ 顶部对齐宠物
   left = Math.max(margin, Math.min(left, vw - PANEL_W - margin));
-  const top = Math.max(margin, petPos.y);
-  const bottomPad = 76; // 移动端底栏
-  const maxTop = vh - bottomPad - 300;
-  const topClamped = Math.min(top, Math.max(margin, maxTop));
-  return { left, top: topClamped, right: "auto", bottom: "auto" };
+
+  const petTop = petPos.y;
+  const roomAbove = petTop - margin;
+  if (roomAbove >= PANEL_H) {
+    // 宠物上方够高 → 面板悬在宠物正上方：底边(bottom)贴宠物顶
+    return { left, bottom: vh - petTop + 6, right: "auto", top: "auto" };
+  }
+  // 上方不够 → 放宠物下方（输入框在宠物下方且面板整体尽量不超屏）
+  const belowTop = petTop + petPos.h + margin;
+  // 若下方会超屏，退回上方并压缩（宁可盖住宠物顶部也要输入框可见）
+  const top = Math.min(belowTop, Math.max(margin, vh - margin - 56 - 240));
+  return { left, top, right: "auto", bottom: "auto" };
 }
 
 /** 聊天瞬时 mood → 长期表情映射（轻宜主导表情） */
@@ -160,9 +169,10 @@ export default function MascotAssistant({
     setAct({ id, key: actCount.current });
   }, []);
 
-  // 滚动到底
+  // 滚动到底：新消息/思考态变化后立即到底（用 auto 而非 smooth，避免长对话滚不到位）
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [msgs.length, thinking, open]);
 
   /** 给当前空间推一条机器人消息；面板关闭时记未读 */
@@ -307,6 +317,16 @@ export default function MascotAssistant({
         pushBot(local.text);
         runAction(local.action);
       }, 260);
+      return;
+    }
+
+    // 离题拦截：写代码/无关请求一律不发给 AI（省 token），本地直接回绝拉回领域
+    if (isOffTopic(text)) {
+      window.setTimeout(() => {
+        setThinking(false);
+        setMood("idle");
+        pushBot(offTopicReply().text);
+      }, 200);
       return;
     }
 
