@@ -34,13 +34,15 @@ export interface PetShellProps {
 
 const PX: Record<"s" | "m" | "l", number> = { s: 56, m: 76, l: 104 };
 
-/** 尺寸随设备：桌面 L=104px；窄屏(手机)整体按视口比例缩小，避免占太大 */
+/**
+ * 尺寸随设备按屏占比：目标 = 屏宽 9% 的桌宠（桌面 L≈104 时约 1150px 屏以下按比例缩，
+ * 手机 390px→35px 占 9%，比固定乘 0.72 更协调）。s/m/l 彼此成比例。
+ */
 function responsivePx(size: "s" | "m" | "l"): number {
   const base = PX[size] ?? PX.m;
-  const vw = window.innerWidth;
-  if (vw <= 480) return Math.round(base * 0.72); // 手机：小 28%
-  if (vw <= 768) return Math.round(base * 0.85); // 小平板
-  return base;
+  const ratio = base / PX.l; // 相对 L
+  const targetL = Math.min(PX.l, Math.max(PX.s * 0.7, window.innerWidth * 0.09));
+  return Math.round(targetL * ratio);
 }
 
 export default function PetShell({
@@ -58,7 +60,7 @@ export default function PetShell({
   onHitWall,
   onPosition,
 }: PetShellProps) {
-  const px = responsivePx(skin.size);
+  const [px, setPx] = useState(() => responsivePx(skin.size));
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [dock, setDock] = useState<PetDock | null>(() => loadPetDock());
   const [displayState, setDisplayState] = useState<StateId>(() => expressionToState(expression));
@@ -86,6 +88,19 @@ export default function PetShell({
   const hitCooldown = useRef(0); // 撞墙 act 冷却，防连刷
 
   const position = skin.position;
+
+  // 尺寸随窗口/皮肤大小变化（resize / orientation）
+  useEffect(() => {
+    const update = () => setPx(responsivePx(skin.size));
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skin.size]);
 
   // 桌宠位置上报（dock/position/尺寸变化或拖拽/飞行后给外层定位聊天气泡用）
   const lastReported = useRef("");
@@ -306,6 +321,12 @@ export default function PetShell({
     // 右键释放不触发单击（聊天）
     const leftUp = e.button === 0 || e.button === -1 || e.pointerType !== "mouse";
     if (d.moved) {
+      // 若上一段甩飞还在飞行中（未落定），这次释放只 commit dock，不重入飞行
+      if (flying.current) {
+        setDock(lastDock.current);
+        savePetDock(lastDock.current);
+        return;
+      }
       // 甩飞判定：速度快且非 bottom 锚点。注意 reduced-motion 不挡"用户主动甩"——
       // 它只挡自主动画（闲置自动变形态），甩飞是用户直接操作应始终可用。
       const fling = flingVelocity(trail.current);

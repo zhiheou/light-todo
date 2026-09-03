@@ -3284,7 +3284,7 @@ html[data-card-style="colorful"] .priority.p4 {
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 10px 40px rgba(16, 24, 40, 0.22);
-  z-index: 47;
+  z-index: 65; /* 高于桌宠(60)：宠物右下/底边时面板内容不被宠物盖住 */
   display: flex;
   flex-direction: column;
   overflow: hidden;

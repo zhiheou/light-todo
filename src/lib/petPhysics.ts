@@ -86,6 +86,8 @@ export function stepPhysics(
   const dtc = Math.min(dt, DT_MAX);
   let { x, y, vx, vy } = s;
   vy += GRAVITY * dtc;
+  // 空气摩擦：轻微衰减水平速度，避免甩飞后"横穿不停、看起来自己往右滑"
+  vx *= 1 - 0.012 * (dtc * 60);
   x += vx * dtc;
   y += vy * dtc;
 
