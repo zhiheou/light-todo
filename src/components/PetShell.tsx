@@ -34,6 +34,15 @@ export interface PetShellProps {
 
 const PX: Record<"s" | "m" | "l", number> = { s: 56, m: 76, l: 104 };
 
+/** 尺寸随设备：桌面 L=104px；窄屏(手机)整体按视口比例缩小，避免占太大 */
+function responsivePx(size: "s" | "m" | "l"): number {
+  const base = PX[size] ?? PX.m;
+  const vw = window.innerWidth;
+  if (vw <= 480) return Math.round(base * 0.72); // 手机：小 28%
+  if (vw <= 768) return Math.round(base * 0.85); // 小平板
+  return base;
+}
+
 export default function PetShell({
   mode,
   skin,
@@ -49,7 +58,7 @@ export default function PetShell({
   onHitWall,
   onPosition,
 }: PetShellProps) {
-  const px = PX[skin.size] ?? PX.m;
+  const px = responsivePx(skin.size);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [dock, setDock] = useState<PetDock | null>(() => loadPetDock());
   const [displayState, setDisplayState] = useState<StateId>(() => expressionToState(expression));
@@ -148,14 +157,26 @@ export default function PetShell({
     const isIdleExpr = expression === "idle" || !expressionToState(expression) || expression === "blink";
     // 仅在"主导=idle"时自动展示（避免打断 thinking/remind 等语义表情）
     if (!isIdleExpr) return;
+    // 温和形态池：只挑"静"的形变（蛋/六边/三角/思考/瞪眼/圆球），避免 burst/comet/exclaim 之类猛跳
+    const gentle = pool.filter((s) =>
+      ["idle", "egg", "hexagon", "play", "thinking", "wide", "wink", "notify"].includes(s as string),
+    );
+    const usePool = gentle.length >= 2 ? gentle : pool;
     let timer: number | null = null;
+    let lastPick = "";
     const step = () => {
-      // 若仍处于 idle 主导（没被新动作打断）才继续换
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      if (pick) setDisplayState(pick as StateId);
-      timer = window.setTimeout(step, 3200 + Math.random() * 2400);
+      // 仍处 idle 才继续换；间隔拉长到 16-28s，避免一卡一卡
+      const stillIdle =
+        expression === "idle" || !expressionToState(expression) || expression === "blink";
+      if (stillIdle && !drag.current && !flying.current) {
+        let pick = usePool[Math.floor(Math.random() * usePool.length)];
+        if (pick === lastPick) pick = usePool[(usePool.indexOf(pick) + 1) % usePool.length];
+        lastPick = pick;
+        if (pick) setDisplayState(pick as StateId);
+      }
+      timer = window.setTimeout(step, 16000 + Math.random() * 12000);
     };
-    timer = window.setTimeout(step, 2600);
+    timer = window.setTimeout(step, 12000);
     return () => { if (timer) window.clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expression, skin.autoStates]);
