@@ -74,23 +74,26 @@ function panelStyle(
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const margin = 12;
+  // 面板实际可用高度：小窗口时压缩（底部输入框始终在屏内是硬约束）
+  const availH = Math.max(240, Math.min(PANEL_H, vh - margin * 2));
   if (!petPos) return { right: margin, bottom: 92 };
-  // 左右：默认宠物右侧，放不下翻左侧
+  // 左右：默认宠物右侧，放不下翻左侧；最后整体 clamp 进屏
   let left = petPos.x + petPos.w + margin;
   if (left + PANEL_W > vw - margin) left = petPos.x - PANEL_W - margin;
   left = Math.max(margin, Math.min(left, vw - PANEL_W - margin));
 
   const petTop = petPos.y;
   const roomAbove = petTop - margin;
-  if (roomAbove >= PANEL_H) {
-    // 宠物上方够高 → 面板悬在宠物正上方：底边(bottom)贴宠物顶
-    return { left, bottom: vh - petTop + 6, right: "auto", top: "auto" };
+  // 1) 宠物上方够高 → 面板悬在宠物正上方：底边贴宠物顶（输入框在宠物上方、永不被挡）
+  if (roomAbove >= availH) {
+    return { left, bottom: vh - petTop + 6, right: "auto", top: "auto", maxHeight: availH };
   }
-  // 上方不够 → 放宠物下方（输入框在宠物下方且面板整体尽量不超屏）
+  // 2) 上方不够 → 放宠物下方；**面板底部 clamp 永不超屏**（输入框绝不跑出屏外）
   const belowTop = petTop + petPos.h + margin;
-  // 若下方会超屏，退回上方并压缩（宁可盖住宠物顶部也要输入框可见）
-  const top = Math.min(belowTop, Math.max(margin, vh - margin - 56 - 240));
-  return { left, top, right: "auto", bottom: "auto" };
+  const clampedTop = Math.min(belowTop, vh - availH - margin);
+  // 3) 若 clamp 后顶到屏顶仍放不下（屏极矮），从屏顶放起，面板高度已按 vh 压缩
+  const top = Math.max(margin, clampedTop);
+  return { left, top, right: "auto", bottom: "auto", maxHeight: availH };
 }
 
 /** 聊天瞬时 mood → 长期表情映射（轻宜主导表情） */
