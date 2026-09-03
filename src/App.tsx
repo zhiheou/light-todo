@@ -36,10 +36,11 @@ import {
   nextTaskInstance,
   normalizeTasks,
   saveTasks,
+  seedTasks,
   sortTasks,
   toggleCompleted,
 } from "./lib/tasks";
-import { loadWorkMemos, makeMemo, normalizeMemos, saveWorkMemos } from "./lib/memos";
+import { loadWorkMemos, makeMemo, normalizeMemos, saveWorkMemos, seedMemos } from "./lib/memos";
 import { loadWorkDimensions, saveWorkDimensions } from "./lib/dimensionsLocal";
 import { loadWorkGoals, saveWorkGoals } from "./lib/goalsLocal";
 import { makeDimension, normalizeDimensions } from "./lib/dimensions";
@@ -581,6 +582,23 @@ export default function App() {
     personalGoals,
   ]);
 
+  // 高危修复：登出/换账号必须清空全部数据 state，绝不让上一账号数据残留在内存里，
+  // 否则注册/登录新账号时会把残留数据上传成新账号初始数据（跨账号串号）。
+  const resetAllLocalData = useCallback(() => {
+    setWorkTasks([]);
+    setWorkMemos([]);
+    setWorkDimensions([]);
+    setWorkGoals([]);
+    setPersonalTasks([]);
+    setPersonalMemos([]);
+    setPersonalDimensions([]);
+    setPersonalGoals([]);
+    setSelectedId(null);
+    setSelectedMemoId(null);
+    setActiveTag(null);
+    setSearch("");
+  }, []);
+
   /** 更新维度（按空间） */
   const updateDimension = useCallback(
     (id: string, patch: Partial<Dimension>) => {
@@ -652,9 +670,26 @@ export default function App() {
   const handleRegister = useCallback(
     async (username: string, password: string) => {
       const keySalt = newKeySalt();
-      const payload = await encryptAppData(collectAppData(), password, keySalt);
+      // 高危修复：新账号初始数据 = 全新 seed，绝不从残留 UI state 里 collect（会串上一账号数据）
+      const now = new Date();
+      const fresh: AppData = {
+        workTasks: seedTasks("work", now),
+        workMemos: seedMemos("work"),
+        personalTasks: [],
+        personalMemos: [],
+        workDimensions: [],
+        workGoals: [],
+        personalDimensions: [],
+        personalGoals: [],
+        updatedAt: Date.now(),
+      };
+      const payload = await encryptAppData(fresh, password, keySalt);
       await registerAccount(username, password, { keySalt, ...payload });
       saveStoredSession({ username, password, keySalt });
+      // 清掉任何残留旧账号数据，载入这份全新数据，避免界面闪旧账号内容
+      resetAllLocalData();
+      setWorkTasks(fresh.workTasks);
+      setWorkMemos(fresh.workMemos);
       setAccount({ username });
       setAccountKeySalt(keySalt);
       setAccountPassword(password);
@@ -663,13 +698,15 @@ export default function App() {
       setView("today");
       showToast("账号已创建，数据已加密同步");
     },
-    [collectAppData, showToast],
+    [resetAllLocalData, showToast],
   );
 
   const handleLogin = useCallback(
     async (username: string, password: string) => {
       const login = await loginAccount(username, password);
       const workspace = await fetchWorkspace();
+      // 先清空本地数据 state，避免上一账号残留闪现/被误当本账号数据
+      resetAllLocalData();
       if (workspace?.data && workspace.iv) {
         const data = await decryptAppData(
           { iv: workspace.iv, data: workspace.data },
@@ -686,7 +723,22 @@ export default function App() {
         setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
         setPersonalGoals(normalizeGoals(data.personalGoals || []));
       } else {
-        const payload = await encryptAppData(collectAppData(), password, login.keySalt);
+        // 账号无数据（罕见：老空号）→ 用全新 seed，绝不从残留 state 收集
+        const now = new Date();
+        const fresh: AppData = {
+          workTasks: seedTasks("work", now),
+          workMemos: seedMemos("work"),
+          personalTasks: [],
+          personalMemos: [],
+          workDimensions: [],
+          workGoals: [],
+          personalDimensions: [],
+          personalGoals: [],
+          updatedAt: Date.now(),
+        };
+        setWorkTasks(fresh.workTasks);
+        setWorkMemos(fresh.workMemos);
+        const payload = await encryptAppData(fresh, password, login.keySalt);
         await saveWorkspace(payload);
       }
       saveStoredSession({ username, password, keySalt: login.keySalt });
@@ -698,7 +750,7 @@ export default function App() {
       setView("today");
       showToast("登录成功，数据已同步");
     },
-    [collectAppData, showToast],
+    [resetAllLocalData, showToast],
   );
 
   const handleLogout = useCallback(async () => {
@@ -710,20 +762,20 @@ export default function App() {
     clearStoredSession();
     localStorage.removeItem("lighttodo:work:v1");
     localStorage.removeItem("lighttodo:work-memos:v1");
+    localStorage.removeItem("lighttodo:work-dimensions:v1");
+    localStorage.removeItem("lighttodo:work-goals:v1");
     setAccount(null);
     setAccountKeySalt("");
     setAccountPassword("");
     setAccountReady(false);
     setAuthState("gate");
     setMode("work");
-    setPersonalTasks([]);
-    setPersonalMemos([]);
+    // 高危：清空全部数据 state（含工作区），防下一账号串号
+    resetAllLocalData();
     setPinState("idle");
     setPinError("");
-    setSearch("");
-    setActiveTag(null);
     showToast("已退出账号");
-  }, [showToast]);
+  }, [showToast, resetAllLocalData]);
 
   // 挂载时恢复会话：有 sessionStorage → 自动登录；无 → 进门禁。
   useEffect(() => {
