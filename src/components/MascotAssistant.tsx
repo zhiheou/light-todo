@@ -407,6 +407,7 @@ export default function MascotAssistant({
           actKey={act?.key ?? 0}
           previewState={previewState}
           unread={unread}
+          chatOpen={open}
           coatKey={skin.coat}
           onMenu={handlePetMenu}
           onSingleClick={openPanel}

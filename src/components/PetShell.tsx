@@ -53,6 +53,7 @@ export default function PetShell({
   actKey = 0,
   previewState,
   unread = 0,
+  chatOpen = false,
   coatKey,
   onMenu,
   onSingleClick,
@@ -67,6 +68,13 @@ export default function PetShell({
   const [look, setLook] = useState<Look | null>(null);
   const [microTip, setMicroTip] = useState<string | null>(null);
   const tipTimer = useRef<number | null>(null);
+  /** 每帧记录"当前正在显示的表情/形态"（乐观），供长周期逻辑判断"是否仍闲置"，
+   *  避免把 bloub 引擎状态当 React state 塞进依赖数组、导致闲置定时器每帧重建 */
+  const liveExpr = useRef<PetExpressionId>(expression);
+  // 同步 ref = 当前主导表情的最新值（每帧不重渲染，仅供长周期判断用）
+  useEffect(() => {
+    liveExpr.current = expression;
+  }, [expression]);
   const shellRef = useRef<HTMLDivElement>(null);
   const actTimer = useRef<number | null>(null);
   const drag = useRef<{
@@ -165,13 +173,14 @@ export default function PetShell({
     if (previewState) setDisplayState(previewState);
   }, [previewState]);
 
-  // 闲置自动随机动作：无主导动作/无试玩时，从 skin.autoStates 勾选的池里定时随机换形态
+  // 闲置自动随机动作：从 skin.autoStates 勾选的池里定时随机换形态。
+  // 修复"卡卡动"根因：
+  //  1) 聊天时 expression 在 idle↔typing 间频繁抖 → 旧逻辑把 expression 放依赖里，整支定时器反复重建、节奏乱；
+  //     现改用 liveExpr ref 判断"仍闲置"，且**聊天/设置面板开着时暂停**（不打扰对话）；
+  //  2) 面板关闭后从完整间隔重新起算（天然去抖），不再立刻跳。
   useEffect(() => {
     const pool = (skin.autoStates ?? []).filter(Boolean);
     if (pool.length < 2) return; // 没勾选或只有一个 → 不自动
-    const isIdleExpr = expression === "idle" || !expressionToState(expression) || expression === "blink";
-    // 仅在"主导=idle"时自动展示（避免打断 thinking/remind 等语义表情）
-    if (!isIdleExpr) return;
     // 温和形态池：只挑"静"的形变（蛋/六边/三角/思考/瞪眼/圆球），避免 burst/comet/exclaim 之类猛跳
     const gentle = pool.filter((s) =>
       ["idle", "egg", "hexagon", "play", "thinking", "wide", "wink", "notify"].includes(s as string),
@@ -179,11 +188,17 @@ export default function PetShell({
     const usePool = gentle.length >= 2 ? gentle : pool;
     let timer: number | null = null;
     let lastPick = "";
+    const isTrulyIdle = () =>
+      (liveExpr.current === "idle" ||
+        liveExpr.current === "blink" ||
+        !expressionToState(liveExpr.current)) &&
+      !drag.current &&
+      !flying.current &&
+      !menu &&
+      !previewState &&
+      !chatOpen; // 聊天/面板开着 → 暂停自动换形（避免对话中"一卡一卡"）
     const step = () => {
-      // 仍处 idle 才继续换；间隔拉长到 16-28s，避免一卡一卡
-      const stillIdle =
-        expression === "idle" || !expressionToState(expression) || expression === "blink";
-      if (stillIdle && !drag.current && !flying.current) {
+      if (isTrulyIdle()) {
         let pick = usePool[Math.floor(Math.random() * usePool.length)];
         if (pick === lastPick) pick = usePool[(usePool.indexOf(pick) + 1) % usePool.length];
         lastPick = pick;
@@ -193,8 +208,9 @@ export default function PetShell({
     };
     timer = window.setTimeout(step, 12000);
     return () => { if (timer) window.clearTimeout(timer); };
+    // 不把 expression 放依赖：它每帧抖，重建=卡顿源。仅当形态池/面板开关这类"真正需要重排"的变化才重建
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expression, skin.autoStates]);
+  }, [skin.autoStates, previewState, chatOpen]);
 
   useEffect(() => {
     return () => {
