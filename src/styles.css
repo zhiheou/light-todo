@@ -697,6 +697,25 @@ button {
   .task-row .task-title { transition: none; }
 }
 
+/* v3.8 F 补漏：删除行动画（200ms 淡出上收后真删，见 TaskList handleDelete） */
+.task-row.leaving {
+  pointer-events: none;
+  animation: task-collapse 0.2s ease-in forwards;
+}
+@keyframes task-collapse {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-width: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-row.leaving { animation: none; }
+}
+
 .task-note {
   margin-top: 4px;
   font-size: 12px;

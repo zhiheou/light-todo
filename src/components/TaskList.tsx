@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { Bell, CheckCircle2, Circle, ListTodo, Pencil, Repeat, Trash2 } from "lucide-react";
 import type { Priority, Task } from "../types";
 import { formatCompletedAt, formatDue, isOverdue } from "../lib/tasks";
@@ -31,6 +32,27 @@ export default function TaskList({
   onSelect,
   onDelete,
 }: TaskListProps) {
+  // v3.8 F 补漏：删除行收拢动画——标记 leaving，短暂播收起后真删（reduced-motion 直删）
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const leavingTimer = useRef<number | null>(null);
+  const handleDelete = (task: Task) => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      onDelete(task);
+      return;
+    }
+    setLeaving((prev) => new Set(prev).add(task.id));
+    if (leavingTimer.current) window.clearTimeout(leavingTimer.current);
+    leavingTimer.current = window.setTimeout(() => {
+      setLeaving((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+      onDelete(task);
+    }, 200);
+  };
+  const isLeaving = (id: string) => leaving.has(id);
+
   if (tasks.length === 0) {
     return (
       <div className="empty">
@@ -59,6 +81,7 @@ export default function TaskList({
               "task-row",
               task.completed ? "done" : "",
               selectedId === task.id ? "selected" : "",
+              isLeaving(task.id) ? "leaving" : "",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -129,7 +152,7 @@ export default function TaskList({
                 aria-label="删除"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDelete(task);
+                  handleDelete(task);
                 }}
               >
                 <Trash2 size={15} />
