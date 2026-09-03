@@ -3985,32 +3985,95 @@ html[data-card-style="colorful"] .priority.p4 {
   border-top-color: #17233a;
 }
 
-/* v3.7.3 登录页桌宠引导 */
-.gate-pet {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 18px;
-  padding: 12px 14px;
-  background: var(--surface, #fff);
-  border: 1px solid var(--border, #d8dfe6);
-  border-radius: 14px;
+/* v3.8.3 新手引导覆盖层（桌宠带路） */
+.onboard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(2px);
+  animation: onboard-fade 0.2s ease;
 }
-.gate-pet-blob { flex: none; }
-.gate-pet-bubble { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.gate-pet-bubble b { font-size: 14px; }
-.gate-pet-bubble span { color: var(--text-2, #5d6b7a); line-height: 1.5; }
-.gate-notice {
-  margin-top: 12px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--muted, #5d6b7a);
-  padding: 8px 10px;
-  background: var(--bg-2, #f6f8fa);
+@keyframes onboard-fade { from { opacity: 0; } to { opacity: 1; } }
+.onboard-card {
+  position: relative;
+  width: min(440px, 100%);
+  background: var(--surface);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(16, 24, 40, 0.3);
+  padding: 26px 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: onboard-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes onboard-pop { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.onboard-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px;
   border-radius: 8px;
 }
-.gate-notice b { color: var(--danger, #dc2626); }
-@media (max-width: 900px) {
-  .gate-pet { flex-direction: row; }
-  .gate-pet-blob { width: 72px; }
+.onboard-close:hover { background: var(--bg-2); color: var(--text); }
+.onboard-pet {
+  display: flex;
+  justify-content: center;
+  margin: -4px 0 2px;
 }
+.onboard-pet svg { filter: drop-shadow(0 8px 16px rgba(16, 24, 40, 0.18)); }
+.onboard-body { text-align: center; }
+.onboard-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--teal);
+  background: var(--teal-soft, rgba(15, 118, 110, 0.12));
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.onboard-body h3 { margin: 12px 0 6px; font-size: 19px; }
+.onboard-body p { margin: 0; font-size: 14px; color: var(--text-2, #45505c); line-height: 1.7; }
+.onboard-hint {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--accent-soft, rgba(37, 99, 235, 0.08));
+  font-size: 13px;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.onboard-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.onboard-dots { display: flex; gap: 6px; }
+.onboard-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border, #d8dfe6);
+  transition: background 0.2s, width 0.2s;
+}
+.onboard-dot.active { background: var(--teal); width: 18px; border-radius: 4px; }
+.onboard-actions .primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboard-overlay, .onboard-card { animation: none; }
+}
+

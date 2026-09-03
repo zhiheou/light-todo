@@ -14,6 +14,7 @@ import PinGate from "./components/PinGate";
 import AddDialog, { type TaskDraft } from "./components/AddDialog";
 import LoginGate from "./components/LoginGate";
 import MascotAssistant, { type MascotNudge } from "./components/MascotAssistant";
+import Onboarding from "./components/Onboarding";
 import type {
   AppData,
   Dimension,
@@ -148,6 +149,9 @@ export default function App() {
   const [authError, setAuthError] = useState("");
   /** 吉祥物主动推送消息队列（登录问候/闲置搭话/到点提醒） */
   const [mascotNudges, setMascotNudges] = useState<MascotNudge[]>([]);
+  /** v3.8.3 新手引导：按账号记住看过；登录/注册后若没看过且是新号则弹出 */
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const ONBOARD_KEY = (u: string) => `lighttodo:onboarded:v1:${u}`;
   /** v3.8 B：吉祥物"删待办"首次授权（按空间各自独立，localStorage 持久化） */
   const [deleteGranted, setDeleteGranted] = useState<Record<Mode, boolean>>(() => ({
     work: localStorage.getItem("lighttodo:pet-delete-grant:v1.work") === "1",
@@ -918,7 +922,24 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [showToast, pushMascot]);
 
-  // 登录成功（显式登录 / 刷新自动登录都会置 authState="in"）后，问候一次 + 汇总当天安排
+  // v3.8.3 新手引导：登录后若该账号在这台设备没看过引导 → 弹出桌宠带路（一次）。
+  // 看过就记 localStorage；换账号会重新判断。
+  const onboardingFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (authState !== "in" || !account) return;
+    if (onboardingFor.current === account.username) return; // 同一账号只判一次
+    onboardingFor.current = account.username;
+    const already = localStorage.getItem(ONBOARD_KEY(account.username)) === "1";
+    if (already) return;
+    const t = window.setTimeout(() => setShowOnboarding(true), 700); // 等首屏稳定再弹
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState, account]);
+  const finishOnboarding = useCallback(() => {
+    if (account) localStorage.setItem(ONBOARD_KEY(account.username), "1");
+    setShowOnboarding(false);
+  }, [account]);
+
   const mascotCtx = useMemo<BrainCtx>(
     () => ({ tasks: currentTasks, persona: mode, now: new Date() }),
     [currentTasks, mode],
@@ -1270,6 +1291,11 @@ export default function App() {
         onSelectView={handleSelectView}
         onOpenMenu={() => setMenuOpen(true)}
       />
+
+      {/* v3.8.3 新手引导：桌宠带路（新账号首次登录弹一次，可跳过） */}
+      {showOnboarding && authState === "in" && (
+        <Onboarding personaName={mode === "work" ? "小轻" : "小安"} onDone={finishOnboarding} />
+      )}
 
       {/* v3.5 吉祥物助理：工作/个人双助理，各自只认当前空间数据 */}
       <MascotAssistant
