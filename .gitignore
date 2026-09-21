@@ -29,3 +29,5 @@ dist-ssr
 # Claude Code 本地配置（含本机路径，不提交）
 .claude/
 _devlog/_*.ts
+_devlog/_*.mjs
+_devlog/_*.ts
