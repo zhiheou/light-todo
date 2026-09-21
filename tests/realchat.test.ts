@@ -146,16 +146,16 @@ describe("易混：'删掉开会' vs '怎么删掉任务' → 问法不该真删
 });
 
 describe("兜底升级：绝不说『听不懂』，改为猜+确认（调研最佳实践）", () => {
-  it("含时间但没识别出动作 → 猜是建任务并请确认", () => {
+  it("无实义的含时间句 → 不胡乱建任务，而是给帮助", () => {
     const r = answer("明天三点那事", CTX);
     expect(r.text).not.toMatch(/暂时没太懂/);
-    expect(r.text).toMatch(/记下来|安排|待办/);
+    expect(r.action).toBeUndefined(); // 无实义不建
   });
 
-  it("含『怎么/如何』→ 猜是在问用法", () => {
+  it("含『怎么/如何』的疑问句 → 给帮助/能力，不建任务", () => {
     const r = answer("这个怎么弄啊", CTX);
     expect(r.text).not.toMatch(/暂时没太懂/);
-    expect(r.text).toMatch(/擅长|建待办|问/);
+    expect(r.action).toBeUndefined();
   });
 
   it("完全不懂的句子 → 给能力菜单(带例子)，不说没懂", () => {

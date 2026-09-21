@@ -116,7 +116,7 @@ const STRIP_RULES: RegExp[] = [
   /每(?:隔)?\d{1,2}天/g,
   /每天|每日/g,
   /(?:这|本|下)?(?:周|星期)[一二三四五六日天]/g,
-  /(?:下|本|这)个?月/g,
+  /(?:下|本|这)个?月|周末|尽快|尽早|抓紧/g,
   /今天|明天|后天|大后天/g,
   /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
   /月(?:底|末)/g,
@@ -253,6 +253,18 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     if (day !== undefined) dueDate = toDateString(parseWeekdayAnchor(day, undefined));
   } else if (weekdayDate && repeat && repeat.freq === "weekly") {
     // 已由循环规则处理，避免重复覆盖
+  }
+
+  // 「周末」= 最近的周六；「下个月(同一天)」= 下月同日；「尽快/尽早」= 今天
+  if (/周末/.test(merged) && !dueDate) {
+    dueDate = toDateString(nextWeekday(6, now)); // 周六
+  }
+  if (/(下|本|这)个月/.test(merged) && !dueDate) {
+    const d = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    dueDate = toDateString(d);
+  }
+  if (/(尽快|尽早|抓紧)/.test(merged) && !dueDate) {
+    dueDate = toDateString(now);
   }
 
   const relative = merged.match(/(今天|明天|后天)/);

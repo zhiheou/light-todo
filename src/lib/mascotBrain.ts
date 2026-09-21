@@ -200,6 +200,9 @@ ${list}`,
 function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
   // 问句排除：问"还有多少/哪些/几个/剩"等 → 是查询，不是要完成某任务（否则会答非所问）
   if (/(还有|还剩|剩下|多少|几个|哪些|有没有|检查|看看|看下|列出|列一下)/.test(raw)) return null;
+  // 期限+事务排除："月底前完成预算" = 要建的任务（完成的是"预算"这件事），不是标记某待办完成。
+  // 特征：有期限词（前/之前/月底/尽快…）且"完成"后面跟的是"事情"而非已有任务名。
+  if (/(前|之前|以前|月底|月末|尽快|尽早|抓紧)/.test(raw) && /(完成|做完|搞定|办好|弄好)/.test(raw)) return null;
   const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了)/.test(raw);
   const undoWord = /(取消完成|没完成|又没做|恢复|撤销完成|还没做)/.test(raw);
   if (!doneWord && !undoWord) return null;
@@ -330,10 +333,18 @@ function tryAddTask(raw: string): BrainReply | null {
   // 避免"今天天气不错"这类闲聊被误当成任务（今天也会被 NLP 填成日期）。
   const hasVerb = /(帮我记|给我记|记一下|记个|记下来|帮我记个|安排|添加|新建|创建|设个|提醒我|帮我约|帮我排|帮我建|建个|加个|存个|放个|记得|记着)/.test(raw);
   const hasTime = !!parsed.dueDate || !!parsed.dueTime;
-  const todoMark = /(待办|任务|开会|会议|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|给|去|看|修|准备|打卡|回复|周报|文案|材料|东西|事情|例会|健身|运动|锻炼|学习|读书|复习|考试|体检|缴费|还款|报名|打车|订票|寄|送)/.test(cleaned);
-  if (!hasVerb && !(hasTime && todoMark)) return null; // 纯闲聊/无建意，交后续分支
-  // NLP 剥完时间后标题为空或纯虚词（如"明天4点"无实义）→ 引导
-  if (!parsed.title || fillers.test(parsed.title)) {
+  const todoMark = /(待办|任务|开会|开个会|会议|会|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|寄|送|取快递|修|准备|打卡|回复|周报|月报|报表|文案|材料|东西|事情|例会|健身|运动|锻炼|学习|读书|复习|考试|体检|缴费|还款|报名|打车|订票|合同|对接|整理|预算|方案|房租|水电|喝水|吃药|锻炼|接|送|办|弄|搞|清|洗|打扫|预约|挂号|报销|签字|盖章)/.test(cleaned);
+  // 闲聊特征：明显不是任务（避免"今天天气不错"被当任务）
+  const chitchat = /(天气|心情|感觉|觉得|好像|不错|真好|开心|难过|累了|好累|好烦|怎么样啊|是吗|哈哈)/.test(cleaned) && !hasVerb;
+  if (chitchat) return null;
+  // 疑问/查询句一律不建任务（"还有哪些待办""明天有事吗""这个怎么弄"都是问句）
+  const isQuestion = /[?？]|(还有|还剩|哪些|什么|怎么|如何|为什么|为啥|是否|有没有|能不能|可不可以|多久|几点|在哪|是谁)|(吗|呢|么)$/.test(raw.trim());
+  if (isQuestion && !hasVerb) return null;
+  // 放宽：有动作词 / 有任务标记 / 有明确时间 —— 三者之一即可建（真人说话不会都带"帮我记"）
+  if (!hasVerb && !todoMark && !hasTime) return null;
+  // 标题是空/纯虚词/纯指代（"那事""这个""那个"）→ 无实义，引导补充而不是建垃圾任务
+  const vague = /^(那事|这事|这个|那个|它|这些|那些|东西|事情|事|啥|什么)$/;
+  if (!parsed.title || fillers.test(parsed.title) || vague.test(parsed.title.trim())) {
     return { text: "想记什么待办呀？跟我说下内容就行，比如「明天下午3点交周报」。" };
   }
   const nice = parsed.dueDate
