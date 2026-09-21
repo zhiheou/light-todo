@@ -157,3 +157,34 @@ describe("v3.9 新能力：完成 / 更新 待办（对话直接操作）", () =
     expect(r.action).toBeUndefined();
   });
 });
+
+describe("v3.9 防幻觉：意图已识别但没找到 → 必须本地定论(localOnly)，绝不转 AI", () => {
+  const withTasks = (list: Array<Partial<any>>) =>
+    ctx(list.map((t, i) => ({ id: `t${i}`, title: "", notes: "", priority: 3, dueDate: "", dueTime: "", remindAt: "", completed: false, createdAt: 0, updatedAt: 0, ...t })));
+
+  it("用户原话「删除刚才的开会记录」→ 能匹配到「开会」并进入确认", () => {
+    const r = answer("删除刚才的开会记录", withTasks([{ title: "开会" }]));
+    expect(r.action?.type).toBe("confirm");
+  });
+
+  it("没有匹配任务时 → 回执带 localOnly(不许转AI)", () => {
+    const r = answer("删掉 不存在的事", withTasks([{ title: "开会" }]));
+    expect(r.localOnly).toBe(true);
+    expect(r.action).toBeUndefined();
+  });
+
+  it("完成找不到 → localOnly", () => {
+    const r = answer("完成了 不存在", withTasks([{ title: "开会" }]));
+    expect(r.localOnly).toBe(true);
+  });
+
+  it("改找不到 → localOnly", () => {
+    const r = answer("把不存在改到明天3点", withTasks([{ title: "开会" }]));
+    expect(r.localOnly).toBe(true);
+  });
+
+  it("多个候选 → localOnly(等用户选，别转AI)", () => {
+    const r = answer("删掉 会", withTasks([{ title: "开会" }, { title: "开会纪要" }]));
+    expect(r.localOnly).toBe(true);
+  });
+});

@@ -206,6 +206,17 @@ export default function MascotAssistant({
   const inputRef = useRef<HTMLInputElement>(null);
   const actCount = useRef(0);
 
+  /** 切换空间：收起面板，避免"卡在上面"；档位与记忆按空间各自加载 */
+  useEffect(() => {
+    setOpen(false);
+    setAbilityOpen(false);
+    setPendingDelete(null);
+    setAwaitingGrant(null);
+    setPendingFeeling(null);
+    setAbility(loadAbility(mode));
+    setConfirmAll(loadConfirmAll(mode));
+  }, [mode]);
+
   const persona = PERSONA[mode];
   const msgs = chat[mode];
 
@@ -512,6 +523,17 @@ export default function MascotAssistant({
         pushBot(local.text);
         runAction(local.action);
       }, 260);
+      return;
+    }
+
+    // v3.9 防幻觉闸门：本地已给出最终答复（如"没找到要删的任务"）→ 绝不转 AI，
+    // 否则 AI 会编造"已帮你删除"。这是"删除幻觉"的根治点。
+    if (local.localOnly) {
+      window.setTimeout(() => {
+        setThinking(false);
+        setMood("idle");
+        pushBot(local.text);
+      }, 220);
       return;
     }
 

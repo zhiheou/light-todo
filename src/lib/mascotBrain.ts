@@ -40,6 +40,11 @@ export interface BrainReply {
   action?: BrainAction;
   /** 是否在等待用户确认（配合 confirm 动作） */
   awaitingConfirm?: boolean;
+  /**
+   * v3.9 防幻觉关键闸门：true = 本地已给出最终答复，**绝不可再转给 AI**。
+   * 用于"意图已识别但没办成"（如没找到要删的任务）——否则 AI 会编造"已帮你删除"。
+   */
+  localOnly?: boolean;
 }
 
 /** 用户对"要不要记一条心情备忘"回"好/记吧" → 真正执行记录（带 #心情 标签） */
@@ -155,11 +160,14 @@ export function lullChatter(ctx: BrainCtx): string {
 function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
   const del = /(删|删除|清掉|去掉|移除|划掉)/.test(raw);
   if (!del) return null;
-  const kw = raw.replace(/(帮我|请|你|把|那|个|这条|这个|任务|待办|删掉|删除|清掉|去掉|移除|划掉|一下)/g, "").trim();
+  const kw = raw
+    .replace(/(帮我|请|你|把|那|个|这条|这个|刚才的|刚刚的|刚才|刚刚|之前|的记录|记录|条目|条|任务|待办|删掉|删除|清掉|去掉|移除|划掉|一下|的)/g, "")
+    .trim();
   // 找标题包含关键字的未完成任务
   const candidates = ctx.tasks.filter((t) => kw && t.title.includes(kw));
   if (candidates.length === 0) {
-    return { text: "抱歉，我没找到要删的任务。能说得更具体一点吗？比如'删掉 开会'。" };
+    // 防幻觉：意图明确但没匹配到 → 本地定论，绝不转 AI（否则 AI 会编"已删除"）
+    return { text: "抱歉，我没找到要删的任务。能说得更具体一点吗？比如「删掉 开会」。", localOnly: true };
   }
   if (candidates.length === 1) {
     const t = candidates[0];
@@ -171,7 +179,8 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   // 多个候选：让用户确认是哪一个
   const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-  return { text: `找到几个任务，你说哪一个？\n${list}` };
+  return { text: `找到几个任务，你说哪一个？
+${list}`, localOnly: true };
 }
 
 /** v3.9 完成/取消完成："完成了 开会" / "把开会标成已完成" / "开会做完了" */
@@ -185,7 +194,7 @@ function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
   const pool = ctx.tasks.filter((t) => (undoWord ? t.completed : !t.completed));
   const candidates = kw ? pool.filter((t) => t.title.includes(kw)) : [];
   if (candidates.length === 0) {
-    return { text: `没找到要${undoWord ? "取消完成" : "完成"}的任务。说具体点？比如「完成了 开会」。` };
+    return { text: `没找到要${undoWord ? "取消完成" : "完成"}的任务。说具体点？比如「完成了 开会」。`, localOnly: true };
   }
   if (candidates.length > 1) {
     const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
@@ -209,7 +218,7 @@ function tryUpdate(raw: string, ctx: BrainCtx): BrainReply | null {
   const rest = m[2].trim();
   const candidates = ctx.tasks.filter((t) => kw && t.title.includes(kw) && !t.completed);
   if (candidates.length === 0) {
-    return { text: `没找到要改的任务。说具体点？比如「把开会改到明天下午3点」。` };
+    return { text: `没找到要改的任务。说具体点？比如「把开会改到明天下午3点」。`, localOnly: true };
   }
   if (candidates.length > 1) {
     const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");

@@ -3514,7 +3514,14 @@ html[data-card-style="colorful"] .priority.p4 {
   right: 18px;
   bottom: 92px;
   width: min(340px, calc(100vw - 24px));
-  max-height: min(520px, calc(100vh - 120px));
+  min-width: 260px;
+  min-height: 220px;
+  height: min(460px, calc(100vh - 120px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 100px);
+  /* v3.9 可拖拽调整大小（用户要求）：右下角拖拽手柄 */
+  resize: both;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -3522,7 +3529,6 @@ html[data-card-style="colorful"] .priority.p4 {
   z-index: 65; /* 高于桌宠(60)：宠物右下/底边时面板内容不被宠物盖住 */
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 .mascot-panel-head {
   display: flex;
@@ -3708,7 +3714,9 @@ html[data-card-style="colorful"] .priority.p4 {
     right: 12px;
     bottom: 136px;
     width: calc(100vw - 24px);
+    height: auto;
     max-height: calc(100vh - 160px);
+    resize: none; /* 移动端不做拖拽调大小（触屏不适合） */
   }
 }
 
@@ -4132,6 +4140,9 @@ html[data-card-style="colorful"] .priority.p4 {
 
 /* v3.9 助手能力设置面板（对话头部 ⚙ 展开） */
 .ability-panel {
+  flex: none;              /* 不被消息区挤扁 */
+  max-height: 62%;         /* 留出消息区；超出内部滚 */
+  overflow-y: auto;
   padding: 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-2, #f6f8fa);
