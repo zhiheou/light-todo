@@ -11,14 +11,19 @@
     "dist": "electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^33.4.11",
     "electron-builder": "^25.0.0"
   },
   "build": {
     "appId": "com.lighttodo.pet",
     "productName": "轻待办",
-    "directories": { "output": "release" },
-    "files": ["main.js", "preload.js"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
     "win": {
       "target": "nsis",
       "sign": false
