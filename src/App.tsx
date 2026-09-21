@@ -48,6 +48,7 @@ import { makeDimension, normalizeDimensions } from "./lib/dimensions";
 import { makeGoal, normalizeGoals } from "./lib/goals";
 import { applyTheme, loadThemePrefs, saveThemePrefs } from "./lib/theme";
 import { parseQuickAdd } from "./lib/nlp";
+import { computeDueReminders, loadNotified, saveNotified } from "./lib/reminder";
 import {
   hasPersonalLock,
   savePersonalLock,
@@ -165,8 +166,7 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
   const remoteSaveTimer = useRef<number | null>(null);
-  const notified = useRef<Set<string>>(new Set());
-  // 吉祥物：每个会话只登录问候一次 / 只搭话有限次数
+  const notified = useRef<Set<string>>(new Set());  // 吉祥物：每个会话只登录问候一次 / 只搭话有限次数
   const mascotGreeted = useRef(false);
   const mascotChats = useRef(0);
   // 本地最后编辑时间：pull 拉取时若已被本地更新盖过则丢弃旧服务端数据，避免覆盖用户刚做的修改
@@ -939,20 +939,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // v3.9：已提醒集合持久化(按空间)，修"刷新后同一提醒重复弹"
+    notified.current = loadNotified(mode);
     const timer = window.setInterval(() => {
-      const now = Date.now();
-      for (const task of currentTasksRef.current) {
-        if (task.completed || !task.remindAt) continue;
-        if (new Date(task.remindAt).getTime() <= now && !notified.current.has(task.id)) {
-          notified.current.add(task.id);
-          showToast(`提醒：${task.title}`);
-          // v3.8 D：到点提醒同步进吉祥物聊天（小字气泡），不只右上角 toast
-          pushMascot(`⏰ 到点啦：「${task.title}」`);
-        }
+      const now = new Date();
+      const due = computeDueReminders(currentTasksRef.current, notified.current, now);
+      if (due.length === 0) return;
+      for (const task of due) {
+        notified.current.add(task.id);
+        showToast(`提醒：${task.title}`);
+        // v3.8 D：到点提醒同步进吉祥物聊天（小字气泡），不只右上角 toast
+        pushMascot(`⏰ 到点啦：「${task.title}」`);
       }
+      saveNotified(mode, notified.current);
     }, 10000);
     return () => window.clearInterval(timer);
-  }, [showToast, pushMascot]);
+  }, [showToast, pushMascot, mode]);
 
   // v3.8.3 新手引导：登录后若该账号在这台设备没看过引导 → 弹出桌宠带路（一次）。
   // 看过就记 localStorage；换账号会重新判断。
