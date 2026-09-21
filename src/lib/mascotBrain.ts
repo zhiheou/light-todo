@@ -50,6 +50,8 @@ export interface BrainReply {
    * 用户下一条回复先来这里匹配（否则"开会"会被漏给 AI 编造）。
    */
   choices?: Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }>;
+  /** v3.9 兜底：看起来像一件小事，带原文供上层一键记下 */
+  quickAdd?: string;
 }
 
 /** 用户对"要不要记一条心情备忘"回"好/记吧" → 真正执行记录（带 #心情 标签） */
@@ -194,6 +196,8 @@ ${list}`,
 
 /** v3.9 完成/取消完成："完成了 开会" / "把开会标成已完成" / "开会做完了" */
 function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
+  // 问句排除：问"还有多少/哪些/几个/剩"等 → 是查询，不是要完成某任务（否则会答非所问）
+  if (/(还有|还剩|剩下|多少|几个|哪些|有没有|检查|看看|看下|列出|列一下)/.test(raw)) return null;
   const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了)/.test(raw);
   const undoWord = /(取消完成|没完成|又没做|恢复|撤销完成|还没做)/.test(raw);
   if (!doneWord && !undoWord) return null;
@@ -262,7 +266,7 @@ ${list}`,
 
 /** 判断文本是否"建备忘录" */
 /** 心情词库：情绪宣泄类句子（"好烦/累死了/好开心…"）——先共情，再询问是否记成 #心情 */
-const FEELING_WORDS = /(好烦|烦死|心烦|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|心情.{0,2}不好|心情.{0,2}差|心情.{0,2}糟|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服)/;
+const FEELING_WORDS = /(好烦|烦死|心烦|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|心情.{0,2}不好|心情.{0,2}差|心情.{0,2}糟|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服|忙完|总算.*完|终于.*完|累瘫|忙死)/;
 const NEG_FEELING = /(烦|累|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|气|暴躁|烦躁|郁闷|不开心|emo|抑郁|孤独|失眠|撑不住|撑不下去)/;
 function tryFeeling(raw: string): BrainReply | null {
   if (!FEELING_WORDS.test(raw)) return null;
@@ -347,10 +351,19 @@ function tryQuery(raw: string, ctx: BrainCtx): BrainReply | null {
   const tKey = dateKey(tomorrow);
 
   // 真正在"问"，而非"建/记"
-  const ask = /(有什么|哪些|安排是|安排吧|查|列|看看|看下|盘点|汇总|忙什么|要做|待办是|有啥)/.test(raw) && !/(建|添加|加个|记下|记个|安排一个|安排个)/.test(raw);
+  const ask = /(有什么|哪些|安排是|安排吧|查|列|看看|看下|盘点|汇总|忙什么|要做|待办是|有啥|多少|几个|还剩|剩下|还有|没做|未完成|没完成|剩下的|待办的)/.test(raw) && !/(建|添加|加个|记下|记个|安排一个|安排个)/.test(raw);
+
+  // 「还有多少没做 / 未完成几个 / 剩下的任务」→ 统计未完成
+  const askRemaining = ask && /(未完成|没完成|没做|没干|剩余|剩下|还剩|还有多少|多少.*(待办|任务|事)|几件|几个)/.test(raw) && !/逾期|过期|明天/.test(raw);
+  if (askRemaining) {
+    const open = ctx.tasks.filter((t) => !t.completed);
+    if (open.length === 0) return { text: "你已经全部完成啦，一件不剩，厉害！🎉" };
+    const list = open.slice(0, 8).map(fmtTask).join("\n");
+    return { text: `你还有 ${open.length} 件没完成：\n${list}${open.length > 8 ? `\n…等共 ${open.length} 件` : ""}` };
+  }
 
   const askOverdue = ask && /(逾期|过期|拖欠|还没弄|没做完|未完成)/.test(raw);
-  const askToday = ask && !/明天/.test(raw) && /(今天|今日|现在|当下|最近|本周)/.test(raw);
+  const askToday = ask && !/明天/.test(raw) && /(今天|今日|现在|当下|最近|本周)/.test(raw) || /今天的?(待办|任务|安排|事)/.test(raw);
   const askTomorrow = ask && /明天/.test(raw);
 
   if (askOverdue) {
@@ -377,6 +390,10 @@ function tryQuery(raw: string, ctx: BrainCtx): BrainReply | null {
 
 /** 判断是否问候/闲聊 */
 function tryGreet(raw: string, ctx: BrainCtx): BrainReply | null {
+  // 礼貌回应
+  if (/^(谢谢|谢啦|多谢|辛苦了|辛苦|感谢|好的谢谢)/.test(raw.trim())) {
+    return { text: "不客气～这是我该做的 😊 还有事随时叫我。" };
+  }
   if (!/(你好|您好|嗨|hi|哈喽|hello|在吗|你是|你是谁|你叫什么|帮个忙)/i.test(raw)) return null;
   const now = ctx.now ?? new Date();
   const hour = now.getHours();
@@ -498,7 +515,20 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (feel) return feel;
   const task = tryAddTask(text);
   if (task) return task;
+  // 兜底 1：看起来像"一件小事"（短、无标点、非疑问、不像查询）→ 主动问要不要记下来
+  const looksLikeThing =
+    /^[一-龥A-Za-z0-9]{2,12}$/.test(text.trim()) &&
+    !/[?？]/.test(text) &&
+    !/(还有|还剩|剩下|多少|几个|哪些|有没有|什么|怎么|为啥|为什么|吗|呢|待办|任务|安排|提醒)/.test(text);
+  if (looksLikeThing) {
+    return {
+      text: `「${text.trim()}」——要我帮你记成待办吗？回「记下来」就行，或者直接说「记个待办：${text.trim()}」。`,
+      localOnly: true,
+      quickAdd: text.trim(),
+    };
+  }
   return {
     text: "嗯……我暂时没太懂这句。（当前我是本地小助手，还在学习更多玩法）你可以试试：\n• 「明天下午3点开会」→ 我帮你建待办\n• 「把这个记到备忘录」\n• 「今天有什么安排」",
+    localOnly: true,
   };
 }

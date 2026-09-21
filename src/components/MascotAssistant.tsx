@@ -25,6 +25,7 @@ import {
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
+import { parseQuickAdd as parseQuickAddForChat } from "../lib/nlp";
 import {
   ABILITIES,
   isBlocked,
@@ -169,6 +170,8 @@ export default function MascotAssistant({
   const [pendingChoices, setPendingChoices] = useState<
     Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }> | null
   >(null);
+  /** v3.9 兜底待记：桌宠问"要不要记成待办"，记住原文 */
+  const [pendingQuick, setPendingQuick] = useState<string | null>(null);
   /** 已保存提示 */
   const [savedHint, setSavedHint] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
@@ -417,6 +420,37 @@ export default function MascotAssistant({
     if (!text || thinking) return;
     setInput("");
 
+    // v3.9 兜底待记：上一步问了"要不要记成待办"，这一步用户回"记/要/好" → 建任务
+    if (pendingQuick) {
+      const yes = /^(记|记下|记下来|要|好|好的|行|可以|嗯|对|是|建|添加)/.test(text.trim());
+      const no = /^(不|不用|算了|不要|别|取消)/.test(text.trim());
+      if (yes || no) {
+        setChat((prev) => ({ ...prev, [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }] }));
+        const q = pendingQuick;
+        setPendingQuick(null);
+        if (yes) {
+          const p0 = parseQuickAddForChat({ title: q, notes: "", now: new Date() });
+          onAddTask({
+            title: p0.title || q,
+            notes: "",
+            priority: p0.priority,
+            dueDate: p0.dueDate,
+            dueTime: p0.dueTime,
+            remindAt: p0.remindAt,
+            repeat: p0.repeat,
+          });
+          setMood("happy");
+          triggerAct("done");
+          pushBot(`好，记下了：「${p0.title || q}」`);
+        } else {
+          setMood("idle");
+          pushBot("好，那不记了～");
+        }
+        return;
+      }
+      setPendingQuick(null); // 没回应是/否 → 放行正常流程
+    }
+
     // v3.9 候选待选：上一步列了候选，这一步用户回名字/序号 → 直接命中（绝不漏给 AI）
     if (pendingChoices) {
       const t0 = text.trim();
@@ -574,6 +608,7 @@ export default function MascotAssistant({
     const local = answer(text, ctx);
     // 记住本地给出的候选（用户下一步选时用）
     if (local.choices && local.choices.length > 0) setPendingChoices(local.choices);
+    if (local.quickAdd) setPendingQuick(local.quickAdd);
 
     // 若有动作（建任务/备忘/删除/确认）→ 本地执行 + 回执（不依赖 AI）
     if (local.action) {
