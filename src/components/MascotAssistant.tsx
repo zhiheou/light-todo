@@ -25,7 +25,16 @@ import {
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
-import { clearLearnLog, exportLearnLog, loadLearnLog, logLearn, summarizeLearnLog } from "../lib/mascotLearn";
+import {
+  clearLearnLog,
+  exportLearnLog,
+  isUploadOn,
+  loadLearnLog,
+  logLearn,
+  reportFallback,
+  setUploadOn,
+  summarizeLearnLog,
+} from "../lib/mascotLearn";
 import { parseQuickAdd as parseQuickAddForChat } from "../lib/nlp";
 import {
   ABILITIES,
@@ -170,6 +179,7 @@ export default function MascotAssistant({
   /** v3.9 学习日志查看 */
   const [learnOpen, setLearnOpen] = useState(false);
   const [learnList, setLearnList] = useState<Array<{ text: string; count: number }>>(() => loadLearnLog().length > 0 ? summarizeLearnLog() : []);
+  const [, setUploadTick] = useState(0);
   /** v3.9 多候选待选：本地列了候选等用户选，记住它们（防"用户回名字却漏给AI"） */
   const [pendingChoices, setPendingChoices] = useState<
     Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }> | null
@@ -643,7 +653,10 @@ export default function MascotAssistant({
     if (local.choices && local.choices.length > 0) setPendingChoices(local.choices);
     if (local.quickAdd) setPendingQuick(local.quickAdd);
     // 学习日志：没答好（兜底）时记下来，供后续分析优化
-    if (local.fallback) logLearn({ text, reply: local.text, kind: "fallback", mode });
+    if (local.fallback) {
+      logLearn({ text, reply: local.text, kind: "fallback", mode });
+      reportFallback(text, "fallback", mode, local.text.length); // 汇总到服务端统一优化
+    }
 
     // 若有动作（建任务/备忘/删除/确认）→ 本地执行 + 回执（不依赖 AI）
     if (local.action) {
@@ -928,8 +941,20 @@ export default function MascotAssistant({
                         </button>
                       </div>
                       <div className="ability-learn-note">
-                        仅存本机、不上传。可复制发给开发者，用来把高频问题变成规则。
+                        仅存本机。可复制发给开发者，用来把高频问题变成规则。
                       </div>
+                      <label className="ability-learn-upload">
+                        <input
+                          type="checkbox"
+                          checked={isUploadOn()}
+                          onChange={(e) => {
+                            setUploadOn(e.target.checked);
+                            setUploadTick((v) => v + 1);
+                            showSaved(e.target.checked ? "已开启：帮助改进" : "已关闭上报");
+                          }}
+                        />
+                        帮助改进（把"没答好的话"匿名汇总，让所有人少踩坑）
+                      </label>
                     </>
                   )}
                 </div>

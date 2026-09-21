@@ -82,3 +82,46 @@ export function summarizeLearnLog(): Array<{ text: string; count: number }> {
     .sort((a, b) => b.count - a.count)
     .slice(0, 30);
 }
+
+/**
+ * v3.9 上报到服务端汇总（让所有用户遇到的坑汇总到一起统一优化）。
+ *
+ * 隐私边界（重要，写给用户看的）：
+ *   - 只在"没答好"时上报**你刚说的那句话**（截断 120 字）
+ *   - **绝不上报**你的任务标题、备忘内容、账号名
+ *   - 可关闭（设置"帮助改进（上报没答好的话）"，默认开）
+ *
+ * 为什么需要：本机记录只帮你自己；上报后所有用户的坑汇总，才能一次修好、所有新用户都受益。
+ */
+const UPLOAD_KEY = "lighttodo:learn-upload:v1";
+
+export function isUploadOn(): boolean {
+  try {
+    return localStorage.getItem(UPLOAD_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setUploadOn(on: boolean): void {
+  try {
+    localStorage.setItem(UPLOAD_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 上报一条（fire-and-forget，失败不影响使用） */
+export function reportFallback(text: string, kind: string, mode: string, replyLen: number): void {
+  if (!isUploadOn()) return;
+  try {
+    void fetch("/api/fallback-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ text: text.slice(0, 120), kind, mode, replyLen }),
+    }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
+}

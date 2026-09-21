@@ -236,6 +236,7 @@ export default {
     // 在模块作用域使用绑定（D1 / secrets）。
     globalThis.DB = workerEnv.DB;
     globalThis.DEEPSEEK_KEY = workerEnv.DEEPSEEK_API_KEY || "";
+  globalThis.FALLBACK_KEY = workerEnv.FALLBACK_KEY || "";
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -257,8 +258,9 @@ export default {
   },
 };
 
-async function routeApi(request, path) {
+async function routeApi(request, path, url) {
   const method = request.method;
+  url = url || new URL(request.url);
   const cookies = parseCookies(request.headers.get("cookie"));
   const token = cookies[SESSION_COOKIE];
 
@@ -387,6 +389,44 @@ async function routeApi(request, path) {
         .run();
       return json({ ok: true });
     });
+  }
+
+  if (path === "/api/fallback-log" && method === "POST") {
+    // v3.9 汇总"没答好"的句子（所有账号集中，供统一优化）
+    // 隐私：只存用户原话(截断120) + 脱敏账号，不存任务/备忘内容
+    return requireAuth(token, async (session) => {
+      const body = await readBody(request);
+      const text = String(body?.text || "").trim().slice(0, 120);
+      if (!text) return json({ ok: true });
+      const kind = String(body?.kind || "fallback").slice(0, 20);
+      const mode = body?.mode === "personal" ? "personal" : "work";
+      const replyLen = Number(body?.replyLen) || 0;
+      await DB.prepare(
+        `INSERT INTO mascot_fallback (account_hash, ts, text, kind, reply_len, mode)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+      )
+        .bind(hashAccountId(session.userId), Date.now(), text, kind, replyLen, mode)
+        .run();
+      return json({ ok: true });
+    });
+  }
+
+  if (path === "/api/fallback-summary" && method === "GET") {
+    // 汇总查询：按句子聚合，看哪些话最多人没答好（给开发者优化用）
+    // 鉴权：需要 FALLBACK_KEY secret（不对外开放）
+    const key = url.searchParams.get("key") || "";
+    if (!globalThis.FALLBACK_KEY || key !== globalThis.FALLBACK_KEY) {
+      return json({ error: "未授权" }, { status: 401 });
+    }
+    const limit = Math.min(200, Math.max(10, Number(url.searchParams.get("limit")) || 50));
+    const rows = await DB.prepare(
+      `SELECT text, COUNT(*) AS cnt, COUNT(DISTINCT account_hash) AS users, MAX(ts) AS last_ts
+       FROM mascot_fallback
+       GROUP BY text
+       ORDER BY cnt DESC
+       LIMIT ${limit}`,
+    ).all();
+    return json({ ok: true, total: rows.results?.length || 0, items: rows.results || [] });
   }
 
   return json({ error: "Not Found" }, { status: 404 });
