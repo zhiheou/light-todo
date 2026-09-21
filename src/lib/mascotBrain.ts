@@ -52,6 +52,8 @@ export interface BrainReply {
   choices?: Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }>;
   /** v3.9 兜底：看起来像一件小事，带原文供上层一键记下 */
   quickAdd?: string;
+  /** v3.9 学习日志：这是"没答好"的兜底回复，上层应记入学习日志 */
+  fallback?: boolean;
 }
 
 /** 用户对"要不要记一条心情备忘"回"好/记吧" → 真正执行记录（带 #心情 标签） */
@@ -525,13 +527,14 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
       text: `你是想让我记下「${text.trim()}」吗？回「记下来」我就建，或者直接说「记个待办：${text.trim()}」。`,
       localOnly: true,
       quickAdd: text.trim(),
+      fallback: true,
     };
   }
   // 兜底 2：拿不准 → 猜+确认（照调研：绝不说"听不懂"，而是复述猜测让用户确认）
   const guess = guessIntent(text);
-  if (guess) return { text: guess, localOnly: true };
+  if (guess) return { text: guess, localOnly: true, fallback: true };
   // 兜底 3：能力菜单（带具体例子，不空泛）
-  return { text: fallbackMenu(text), localOnly: true };
+  return { text: fallbackMenu(text), localOnly: true, fallback: true };
 }
 
 /** 兜底·猜+确认：从关键词反推用户可能想干什么（比"没听懂"友好得多） */

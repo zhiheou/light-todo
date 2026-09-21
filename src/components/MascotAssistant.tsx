@@ -25,6 +25,7 @@ import {
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
+import { clearLearnLog, exportLearnLog, loadLearnLog, logLearn, summarizeLearnLog } from "../lib/mascotLearn";
 import { parseQuickAdd as parseQuickAddForChat } from "../lib/nlp";
 import {
   ABILITIES,
@@ -166,6 +167,9 @@ export default function MascotAssistant({
   const [confirmAll, setConfirmAll] = useState<boolean>(() => loadConfirmAll(mode));
   /** 能力设置面板是否展开 */
   const [abilityOpen, setAbilityOpen] = useState(false);
+  /** v3.9 学习日志查看 */
+  const [learnOpen, setLearnOpen] = useState(false);
+  const [learnList, setLearnList] = useState<Array<{ text: string; count: number }>>(() => loadLearnLog().length > 0 ? summarizeLearnLog() : []);
   /** v3.9 多候选待选：本地列了候选等用户选，记住它们（防"用户回名字却漏给AI"） */
   const [pendingChoices, setPendingChoices] = useState<
     Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }> | null
@@ -638,6 +642,8 @@ export default function MascotAssistant({
     // 记住本地给出的候选（用户下一步选时用）
     if (local.choices && local.choices.length > 0) setPendingChoices(local.choices);
     if (local.quickAdd) setPendingQuick(local.quickAdd);
+    // 学习日志：没答好（兜底）时记下来，供后续分析优化
+    if (local.fallback) logLearn({ text, reply: local.text, kind: "fallback", mode });
 
     // 若有动作（建任务/备忘/删除/确认）→ 本地执行 + 回执（不依赖 AI）
     if (local.action) {
@@ -875,6 +881,59 @@ export default function MascotAssistant({
               <div className="ability-current">
                 当前：{ABILITIES.find((x) => x.key === ability)?.example}
               </div>
+
+              {/* v3.9 学习日志：看哪些话没答好 → 供分析优化 */}
+              <button
+                type="button"
+                className="ability-learn-toggle"
+                onClick={() => {
+                  setLearnOpen((v) => !v);
+                  if (!learnOpen) setLearnList(summarizeLearnLog());
+                }}
+              >
+                {learnOpen ? "▾" : "▸"} 学习日志（哪些话我没答好）
+              </button>
+              {learnOpen && (
+                <div className="ability-learn">
+                  {learnList.length === 0 ? (
+                    <div className="ability-learn-empty">暂无记录——说明最近都答得不错 👍</div>
+                  ) : (
+                    <>
+                      <div className="ability-learn-hint">按出现次数排序，高频的优先改进：</div>
+                      {learnList.slice(0, 10).map((e) => (
+                        <div key={e.text} className="ability-learn-row">
+                          <span className="ability-learn-text">{e.text}</span>
+                          <span className="ability-learn-count">{e.count}次</span>
+                        </div>
+                      ))}
+                      <div className="ability-learn-actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(exportLearnLog());
+                            showSaved("已复制到剪贴板");
+                          }}
+                        >
+                          复制全部
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearLearnLog();
+                            setLearnList([]);
+                            showSaved("已清空");
+                          }}
+                        >
+                          清空
+                        </button>
+                      </div>
+                      <div className="ability-learn-note">
+                        仅存本机、不上传。可复制发给开发者，用来把高频问题变成规则。
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
