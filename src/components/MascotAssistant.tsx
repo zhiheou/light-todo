@@ -172,6 +172,9 @@ export default function MascotAssistant({
   >(null);
   /** v3.9 兜底待记：桌宠问"要不要记成待办"，记住原文 */
   const [pendingQuick, setPendingQuick] = useState<string | null>(null);
+  /** v3.9 用户拖拽调整后的面板尺寸（null = 用默认） */
+  const [panelSize, setPanelSize] = useState<{ w: number; h: number } | null>(null);
+  const resizeRef = useRef<{ sx: number; sy: number; w: number; h: number } | null>(null);
   /** 已保存提示 */
   const [savedHint, setSavedHint] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
@@ -227,6 +230,32 @@ export default function MascotAssistant({
     setAbility(loadAbility(mode));
     setConfirmAll(loadConfirmAll(mode));
   }, [mode]);
+
+  /** v3.9 自定义拖拽调大小：右下角手柄，向下/向右都能拉 */
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const w = Math.max(260, Math.min(window.innerWidth - 24, r.w + (e.clientX - r.sx)));
+      const h = Math.max(220, Math.min(window.innerHeight - 60, r.h + (e.clientY - r.sy)));
+      setPanelSize({ w, h });
+    };
+    const onUp = () => { resizeRef.current = null; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+  function startResize(e: React.PointerEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = (e.currentTarget as HTMLElement).parentElement;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    resizeRef.current = { sx: e.clientX, sy: e.clientY, w: rect.width, h: rect.height };
+  }
 
   const persona = PERSONA[mode];
   const msgs = chat[mode];
@@ -776,7 +805,10 @@ export default function MascotAssistant({
           className={`mascot-panel mascot-${mode}`}
           role="dialog"
           aria-label={`与${persona.name}对话`}
-          style={panelStyle(petPos, open)}
+          style={{
+            ...panelStyle(petPos, open),
+            ...(panelSize ? { width: panelSize.w, height: panelSize.h, maxHeight: "none", maxWidth: "none" } : {}),
+          }}
         >
           <div className="mascot-panel-head">
             <MascotAvatar mood={thinking ? "thinking" : mood} size={34} className={`mascot-head-avatar mascot-${mode}`} />
@@ -899,6 +931,14 @@ export default function MascotAssistant({
               <button type="button" className="secondary" onClick={() => send("不用")}>不用</button>
             </div>
           )}
+
+          <div
+            className="mascot-resize"
+            onPointerDown={startResize}
+            role="separator"
+            aria-label="拖拽调整大小"
+            title="拖拽调整窗口大小"
+          />
 
           <div className="mascot-input">
             <input

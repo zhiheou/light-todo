@@ -3518,8 +3518,7 @@ html[data-card-style="colorful"] .priority.p4 {
   height: min(460px, calc(100vh - 120px));
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 100px);
-  /* v3.9 可拖拽调整大小（用户要求）：右下角拖拽手柄 */
-  resize: both;
+  /* v3.9 拖拽调大小：由 .mascot-resize 自定义手柄实现（原生 resize 只能向右下角拉） */
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3715,7 +3714,7 @@ html[data-card-style="colorful"] .priority.p4 {
     width: calc(100vw - 24px);
     height: auto;
     max-height: calc(100vh - 160px);
-    resize: none; /* 移动端不做拖拽调大小（触屏不适合） */
+    /* 移动端不做拖拽调大小（触屏不适合） */
   }
 }
 
@@ -4187,4 +4186,29 @@ html[data-card-style="colorful"] .priority.p4 {
   line-height: 1.5;
   border-top: 1px dashed var(--border);
   padding-top: 7px;
+}
+
+/* v3.9 自定义拖拽调大小手柄（右下角）——保证向下/向右都能拉 */
+.mascot-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  border-radius: 0 0 12px 0;
+  touch-action: none;
+  z-index: 3;
+  background:
+    linear-gradient(135deg, transparent 46%, var(--border) 46%, var(--border) 54%, transparent 54%),
+    linear-gradient(135deg, transparent 66%, var(--border) 66%, var(--border) 74%, transparent 74%);
+}
+.mascot-resize:hover {
+  background:
+    linear-gradient(135deg, transparent 46%, var(--teal) 46%, var(--teal) 54%, transparent 54%),
+    linear-gradient(135deg, transparent 66%, var(--teal) 66%, var(--teal) 74%, transparent 74%);
+}
+
+@media (max-width: 768px) {
+  .mascot-resize { display: none; }
 }
