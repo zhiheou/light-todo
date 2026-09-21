@@ -1,0 +1,33 @@
+{
+  "name": "light-todo-desktop",
+  "version": "3.9.0",
+  "private": true,
+  "description": "轻待办桌面版：桌宠常驻桌面",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron main.js",
+    "dev": "cross-env LIGHT_TODO_URL=http://localhost:1420 electron main.js",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.lighttodo.pet",
+    "productName": "轻待办",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.js"],
+    "win": {
+      "target": "nsis",
+      "sign": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "轻待办"
+    }
+  }
+}

@@ -4273,3 +4273,17 @@ html[data-card-style="colorful"] .priority.p4 {
   cursor: pointer;
 }
 .ability-learn-upload input { margin-top: 2px; accent-color: var(--teal); flex: none; }
+
+/* v3.9 桌面版（Electron）：整页透明，只显示桌宠 */
+html.desktop-pet-mode,
+html.desktop-pet-mode body,
+html.desktop-pet-mode #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+.desktop-pet-root {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  position: relative;
+}
