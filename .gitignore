@@ -31,3 +31,5 @@ dist-ssr
 _devlog/_*.ts
 _devlog/_*.mjs
 _devlog/_*.ts
+desktop/node_modules/
+desktop/release/
