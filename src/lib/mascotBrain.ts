@@ -328,7 +328,7 @@ function tryAddTask(raw: string): BrainReply | null {
   // 避免"今天天气不错"这类闲聊被误当成任务（今天也会被 NLP 填成日期）。
   const hasVerb = /(帮我记|给我记|记一下|记个|记下来|帮我记个|安排|添加|新建|创建|设个|提醒我|帮我约|帮我排|帮我建|建个|加个|存个|放个|记得|记着)/.test(raw);
   const hasTime = !!parsed.dueDate || !!parsed.dueTime;
-  const todoMark = /(待办|任务|开会|会议|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|给|去|看|修|准备|打卡|回复|周报|文案|材料|东西|事情)/.test(cleaned);
+  const todoMark = /(待办|任务|开会|会议|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|给|去|看|修|准备|打卡|回复|周报|文案|材料|东西|事情|例会|健身|运动|锻炼|学习|读书|复习|考试|体检|缴费|还款|报名|打车|订票|寄|送)/.test(cleaned);
   if (!hasVerb && !(hasTime && todoMark)) return null; // 纯闲聊/无建意，交后续分支
   // NLP 剥完时间后标题为空或纯虚词（如"明天4点"无实义）→ 引导
   if (!parsed.title || fillers.test(parsed.title)) {

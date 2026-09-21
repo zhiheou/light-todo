@@ -99,6 +99,8 @@ function parseTime(text: string): TimeParse | null {
     else if (suffix === "三刻") minute = 45;
     else if (suffix) minute = Number(suffix.replace(/分$/, "")) || 0;
     const isPm = /(下午|晚上|傍晚)/.test(text);
+    // 注意：不做"裸小时默认下午"的推断——那会把常见的"8点/10点"错成 20:00/22:00，
+    // 比"四点=04:00"更糟。保持用户字面表达，需下午时用户会说"下午四点"。
     if (isPm && hour < 12) hour += 12;
     return { time: `${pad(hour)}:${pad(minute)}`, isPm };
   }
@@ -114,11 +116,12 @@ const STRIP_RULES: RegExp[] = [
   /每(?:隔)?\d{1,2}天/g,
   /每天|每日/g,
   /(?:这|本|下)?(?:周|星期)[一二三四五六日天]/g,
-  /今天|明天|后天/g,
+  /(?:下|本|这)个?月/g,
+  /今天|明天|后天|大后天/g,
   /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
   /月(?:底|末)/g,
   /(?:之前|以前|之内|以内|内)\s*(?:完成|提交|交|给|发|处理|搞定|弄好)?/g,
-  /(?:下班|中午|傍晚|晚饭|早上|上午|下午|晚上|深夜)/g,
+  /(?:下班|中午|傍晚|晚饭|早上|上午|下午|晚上|深夜|清晨|凌晨)/g,
   /\d{1,2}[月/]\d{1,2}[日号]?/g,
   /\d{1,2}[日号]/g,
   /\d{4}-\d{1,2}-\d{1,2}/g,
@@ -129,7 +132,7 @@ const STRIP_RULES: RegExp[] = [
 ];
 
 function stripTokens(title: string): string {
-  let clean = title;
+  let clean = normalizeCnTime(title);
   for (const rule of STRIP_RULES) clean = clean.replace(rule, " ");
   // "记得/别忘了/记住" 开头：整体去掉（须先于"建待办外壳"，否则只剥到"记"剩个"得"）
   clean = clean.replace(/^\s*(?:记得|别忘了|记住|记着)\s*[，,：:、]?\s*/, "");
@@ -146,11 +149,44 @@ function stripTokens(title: string): string {
   return clean.trim();
 }
 
+// 中文数字 → 阿拉伯数字（用于时间表达：点/号/日，1-31）
+const CN_NUM: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+function cnToNum(s: string): number | null {
+  if (/^\d+$/.test(s)) return Number(s);
+  if (s === "十") return 10;
+  if (s.length === 2 && s[0] === "十") return 10 + (CN_NUM[s[1]] ?? 0);
+  if (s.length === 2 && s[1] === "十") return (CN_NUM[s[0]] ?? 0) * 10;
+  if (s.length === 3 && s[1] === "十") return (CN_NUM[s[0]] ?? 0) * 10 + (CN_NUM[s[2]] ?? 0);
+  if (s.length === 1 && CN_NUM[s] !== undefined) return CN_NUM[s];
+  return null;
+}
+
+/** 口语时间词归一 + 中文数字时间转阿拉伯（"明早"→"明天早上"、"八点"→"8点"、"十号"→"10号"） */
+function normalizeCnTime(text: string): string {
+  let t = text;
+  // 口语时间词
+  t = t
+    .replace(/明早/g, "明天早上")
+    .replace(/明晚/g, "明天晚上")
+    .replace(/明儿个?/g, "明天")
+    .replace(/后儿个?/g, "后天")
+    .replace(/今早/g, "今天早上")
+    .replace(/今儿个?/g, "今天")
+    .replace(/今晚/g, "今天晚上")
+    .replace(/半晌|晌午/g, "中午");
+  // 中文数字 + 时间单位（仅当紧邻 点/号/日 时转换，避免"一点小事"误伤）
+  t = t.replace(/([一二两三四五六七八九十]{1,3})(?=\s*(?:点|号|日))/g, (m) => {
+    const n = cnToNum(m);
+    return n === null ? m : String(n);
+  });
+  return t;
+}
+
 export function parseQuickAdd(input: ParseInput): QuickAddParse {
   const title = input.title.trim();
   const notes = (input.notes ?? "").trim();
   const now = input.now ?? new Date();
-  const merged = `${title} ${notes}`.trim();
+  const merged = normalizeCnTime(`${title} ${notes}`.trim());
 
   let cleanTitle = title;
   let priority: Priority = 3;
