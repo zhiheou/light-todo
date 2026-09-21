@@ -24,12 +24,22 @@ function base64ToBytes(value: string): Uint8Array {
 
 // v3.9.2 perf：同一 (password,keySalt) 只派生一次密钥。PBKDF2 150k 是首屏最大单点耗时，
 // 30s 轮询/自动保存每次都会重新派生；CryptoKey 不可导出（extractable=false），缓存它不降低安全性。
+//
+// 安全纪律（v3.9.2 加固，防跨账号串号）：
+//  - 缓存键必须含**账号**（username），不能只靠 password+keySalt —— 否则同名/换账号时会误命中
+//  - **登出/切账号必须调 clearKeyCache()**，绝不留上一个账号的密钥在内存里
 const keyCache = new Map<string, CryptoKey>();
-let lastKey: { password: string; keySalt: string; key: CryptoKey } | null = null;
+let lastKey: { account: string; password: string; keySalt: string; key: CryptoKey } | null = null;
 
-async function deriveKey(password: string, keySalt: string): Promise<CryptoKey> {
-  // keySalt 是 base64（不含冒号），用冒号分隔可以无歧义地拼出缓存键
-  const cacheKey = `${keySalt}:${password}`;
+/** 登出/切账号时调用：清空密钥缓存，杜绝"用上个账号的密钥解密本账号密文" */
+export function clearKeyCache(): void {
+  keyCache.clear();
+  lastKey = null;
+}
+
+async function deriveKey(password: string, keySalt: string, account = ""): Promise<CryptoKey> {
+  // 缓存键含 account：避免"同一浏览器换账号后误命中上个账号的密钥"
+  const cacheKey = `${account}${keySalt}${password}`;
   const hit = keyCache.get(cacheKey);
   if (hit) return hit;
   const material = await crypto.subtle.importKey(
@@ -46,9 +56,9 @@ async function deriveKey(password: string, keySalt: string): Promise<CryptoKey> 
     false,
     ["encrypt", "decrypt"],
   );
-  if (keyCache.size > 4) keyCache.clear(); // 只保留最近会话，登出后自然失效
+  if (keyCache.size > 4) keyCache.clear(); // 上限，防内存膨胀（登出仍会主动清）
   keyCache.set(cacheKey, key);
-  lastKey = { password, keySalt, key };
+  lastKey = { account, password, keySalt, key };
   return key;
 }
 
@@ -62,8 +72,9 @@ export async function encryptAppData(
   data: AppData,
   password: string,
   keySalt: string,
+  account = "",
 ): Promise<WorkspacePayload> {
-  const key = await deriveKey(password, keySalt);
+  const key = await deriveKey(password, keySalt, account);
   const iv = new Uint8Array(12);
   crypto.getRandomValues(iv);
   const cipher = await crypto.subtle.encrypt(
@@ -78,13 +89,15 @@ export async function decryptAppData(
   payload: WorkspacePayload,
   password: string,
   keySalt: string,
+  account = "",
 ): Promise<AppData | null> {
   // v3.9.2 perf：刷新/恢复会话时先用上次缓存的密钥立即解密首屏，PBKDF2 校验推迟到后台。
   // 安全性不变：解密成功即证明密码正确（AES-GCM 认证失败会抛错）；后台 deriveKey 真错时仍做完整校验。
-  if (lastKey && lastKey.password === password && lastKey.keySalt === keySalt) {
+  // 安全加固：必须同时匹配 account，防"换账号后误用上个账号的密钥"。
+  if (lastKey && lastKey.account === account && lastKey.password === password && lastKey.keySalt === keySalt) {
     return decryptWithKey(payload, lastKey.key);
   }
-  const key = await deriveKey(password, keySalt);
+  const key = await deriveKey(password, keySalt, account);
   return decryptWithKey(payload, key);
 }
 
@@ -93,8 +106,16 @@ export async function decryptAppDataFast(
   payload: WorkspacePayload,
   password: string,
   keySalt: string,
+  account = "",
 ): Promise<AppData | null> {
-  if (!lastKey || lastKey.password !== password || lastKey.keySalt !== keySalt) return null;
+  if (
+    !lastKey ||
+    lastKey.account !== account ||
+    lastKey.password !== password ||
+    lastKey.keySalt !== keySalt
+  ) {
+    return null;
+  }
   return decryptWithKey(payload, lastKey.key);
 }
 

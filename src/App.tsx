@@ -55,6 +55,7 @@ import {
   verifyPersonalLock,
 } from "./lib/personalLock";
 import {
+  clearKeyCache,
   decryptAppData,
   decryptAppDataFast,
   encryptAppData,
@@ -722,7 +723,7 @@ export default function App() {
         personalGoals: [],
         updatedAt: Date.now(),
       };
-      const payload = await encryptAppData(fresh, password, keySalt);
+      const payload = await encryptAppData(fresh, password, keySalt, username);
       await registerAccount(username, password, { keySalt, ...payload });
       saveStoredSession({ username, password, keySalt });
       // 清掉任何残留旧账号数据，载入这份全新数据，避免界面闪旧账号内容
@@ -763,6 +764,7 @@ export default function App() {
           { iv: workspace.iv, data: workspace.data },
           password,
           login.keySalt,
+          username,
         );
         if (!data) throw new Error("数据解密失败，请确认账号密码正确");
         applyAppData(data);
@@ -782,7 +784,7 @@ export default function App() {
         };
         setWorkTasks(fresh.workTasks);
         setWorkMemos(fresh.workMemos);
-        const payload = await encryptAppData(fresh, password, login.keySalt);
+        const payload = await encryptAppData(fresh, password, login.keySalt, username);
         await saveWorkspace(payload);
       }
       saveStoredSession({ username, password, keySalt: login.keySalt });
@@ -812,6 +814,7 @@ export default function App() {
             { iv: workspace.iv, data: workspace.data },
             stored.password,
             stored.keySalt,
+            stored.username,
           )
         : null;
       // 密钥不在缓存里（如新标签页重开且已过后台校验）→ 回退完整 PBKDF2 解密
@@ -820,6 +823,7 @@ export default function App() {
           { iv: workspace.iv, data: workspace.data },
           stored.password,
           stored.keySalt,
+          stored.username,
         );
       }
       if (!data && workspace.data) {
@@ -856,6 +860,7 @@ export default function App() {
             { iv: latest.iv, data: latest.data },
             stored.password,
             stored.keySalt,
+            stored.username,
           );
           if (fresh && lastLocalEdit.current < restoreStarted) applyAppData(fresh);
         } catch {
@@ -873,6 +878,7 @@ export default function App() {
       // session may already be invalid
     }
     clearStoredSession();
+    clearKeyCache(); // 安全：清掉上个账号的密钥缓存，杜绝串号
     localStorage.removeItem("lighttodo:work:v1");
     localStorage.removeItem("lighttodo:work-memos:v1");
     localStorage.removeItem("lighttodo:work-dimensions:v1");
@@ -919,7 +925,7 @@ export default function App() {
     if (!account || !accountReady || !accountKeySalt || !accountPassword) return;
     if (remoteSaveTimer.current) window.clearTimeout(remoteSaveTimer.current);
     remoteSaveTimer.current = window.setTimeout(() => {
-      void encryptAppData(collectAppData(), accountPassword, accountKeySalt)
+      void encryptAppData(collectAppData(), accountPassword, accountKeySalt, account?.username || "")
         .then((payload) => saveWorkspace(payload))
         .catch(() => showToast("自动同步失败", "danger"));
     }, 800);

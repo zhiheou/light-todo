@@ -54,7 +54,8 @@ export function seedTasks(mode: Mode, now: Date): Task[] {
 }
 
 export function loadTasks(mode: Mode, now = new Date()): Task[] {
-  const raw = localStorage.getItem(keyFor(mode));
+  let raw: string | null = null;
+  try { raw = localStorage.getItem(keyFor(mode)); } catch { return seedTasks(mode, now); }
   if (!raw) {
     const tasks = seedTasks(mode, now);
     saveTasks(mode, tasks);

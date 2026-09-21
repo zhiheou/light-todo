@@ -226,7 +226,9 @@ function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
   // 期限+事务排除："月底前完成预算" = 要建的任务（完成的是"预算"这件事），不是标记某待办完成。
   // 特征：有期限词（前/之前/月底/尽快…）且"完成"后面跟的是"事情"而非已有任务名。
   if (/(前|之前|以前|月底|月末|尽快|尽早|抓紧)/.test(raw) && /(完成|做完|搞定|办好|弄好)/.test(raw)) return null;
-  const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|写完了|写完|开完了|开完|会开完了|弄好了|办好了|搞定了|好了)/.test(raw);
+  // 否定前缀先排除：但"取消完成X"是**合法操作**（标回未完成），不能一起拦
+  if (/^(取消|不用|别|不要|别把|算了不)/.test(raw.trim()) && !/(取消完成|撤销完成)/.test(raw)) return null;
+  const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|写完了|写完|开完了|开完|会开完了|弄好了|办好了|搞定了)/.test(raw);
   const undoWord = /(取消完成|没完成|又没做|恢复|撤销完成|还没做)/.test(raw);
   if (!doneWord && !undoWord) return null;
   const kw = raw

@@ -84,6 +84,8 @@ function parseTime(text: string): TimeParse | null {
   if (colon) {
     const hour = Number(colon[1]);
     const minute = Number(colon[2]);
+    // 范围校验：非法时间（25:00 / 13:75）直接忽略，避免拼出非法日期串在 toISOString 处抛错白屏
+    if (hour > 23 || minute > 59) return null;
     const isPm = /(下午|晚上|傍晚)/.test(text);
     let h = hour;
     if (isPm && h < 12) h += 12;
@@ -98,6 +100,8 @@ function parseTime(text: string): TimeParse | null {
     else if (suffix === "一刻") minute = 15;
     else if (suffix === "三刻") minute = 45;
     else if (suffix) minute = Number(suffix.replace(/分$/, "")) || 0;
+    // 范围校验：99点 / 9点99分 都判非法（防白屏）
+    if (hour > 23 || minute > 59) return null;
     const isPm = /(下午|晚上|傍晚)/.test(text);
     const isNight = /(今晚|晚上|夜里|半夜)/.test(text);
     // "今晚12点" = 午夜（不是中午12点）→ 记 23:59（当天最后一刻，不回退到次日）

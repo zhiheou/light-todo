@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Mode, Task, Memo } from "../types";
-import { loadTasks } from "../lib/tasks";
-import { loadWorkMemos } from "../lib/memos";
+import { loadTasks, saveTasks } from "../lib/tasks";
+import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
 import PetShell from "./PetShell";
 import MascotAssistant from "./MascotAssistant";
 import { loadPetSkin } from "../lib/petSkin";
@@ -32,10 +32,49 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
     };
   }, []);
 
+  // v3.9 数据落盘：任务/备忘变化即写本机（否则关掉桌宠窗口，刚记的就没了）
+  useEffect(() => {
+    saveTasks(mode as Mode, tasks);
+  }, [tasks, mode]);
+  useEffect(() => {
+    saveWorkMemos(memos);
+  }, [memos]);
+
+  // v3.9 与主窗口同步：主窗口改了数据（同源 localStorage）→ 本窗口跟着更新
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "lighttodo:work:v1" || e.key === "lighttodo:personal:v1") {
+        setTasks(loadTasks(mode as Mode));
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [mode]);
+
   const ctx: BrainCtx = { tasks, persona: mode as "work" | "personal" };
 
+  // v3.9 桌面版关键：鼠标穿透动态切换
+  // 默认整窗穿透（透明区域不挡其他程序）；鼠标进入宠物像素范围时接管，移出立即恢复穿透。
+  // 不做这个的话：宠物的点击/拖拽全部收不到（主进程建窗时就设了全窗穿透）。
+  const rootRef = useRef<HTMLDivElement>(null);
+  const petAPI = (window as unknown as { petAPI?: {
+    setIgnoreMouseEvents: (b: boolean) => void;
+    moveWindow: (dx: number, dy: number) => void;
+    openMainWindow: () => void;
+  } }).petAPI;
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!petAPI) return;
+      const t = e.target as HTMLElement;
+      // 命中宠物本体或对话面板 → 接管鼠标；否则穿透
+      const hit = !!(t.closest(".pet-shell") || t.closest(".mascot-panel"));
+      petAPI.setIgnoreMouseEvents(!hit);
+    },
+    [petAPI],
+  );
+
   return (
-    <div className="desktop-pet-root">
+    <div className="desktop-pet-root" ref={rootRef} onPointerMove={onPointerMove}>
       <PetShell
         mode={mode as Mode}
         skin={skin}
