@@ -188,3 +188,31 @@ describe("v3.9 防幻觉：意图已识别但没找到 → 必须本地定论(lo
     expect(r.localOnly).toBe(true);
   });
 });
+
+describe("v3.9 防幻觉：多候选必须带 choices（用户回名字才不会漏给AI）", () => {
+  const withTasks = (list: Array<Partial<any>>) =>
+    ctx(list.map((t, i) => ({ id: `t${i}`, title: "", notes: "", priority: 3, dueDate: "", dueTime: "", remindAt: "", completed: false, createdAt: 0, updatedAt: 0, ...t })));
+
+  it("用户原话「删掉 开会」匹配多条 → 返回 choices(3条) + localOnly", () => {
+    const r = answer("删掉 开会", withTasks([{ title: "开会" }, { title: "五点开会" }, { title: "四点开会" }]));
+    expect(r.localOnly).toBe(true);
+    expect(r.choices?.length).toBe(3);
+    expect(r.choices?.every((c) => c.op === "delete")).toBe(true);
+  });
+
+  it("完成多候选 → choices 的 op 是 complete", () => {
+    const r = answer("完成了 开会", withTasks([{ title: "开会" }, { title: "开会纪要" }]));
+    expect(r.choices?.every((c) => c.op === "complete")).toBe(true);
+  });
+
+  it("取消完成多候选 → op 是 uncomplete", () => {
+    const r = answer("取消完成 开会", withTasks([{ title: "开会", completed: true }, { title: "开会纪要", completed: true }]));
+    expect(r.choices?.every((c) => c.op === "uncomplete")).toBe(true);
+  });
+
+  it("choices 里带的是真实 id，能被上层用来执行", () => {
+    const r = answer("删掉 开会", withTasks([{ title: "开会", id: "abc" }]));
+    // 单条走 confirm
+    expect(r.action).toMatchObject({ type: "confirm" });
+  });
+});

@@ -3511,8 +3511,7 @@ html[data-card-style="colorful"] .priority.p4 {
 /* ---- 聊天面板 ---- */
 .mascot-panel {
   position: fixed;
-  right: 18px;
-  bottom: 92px;
+  /* left/top 由 JS panelStyle 内联给出（便于 resize 向右下变大） */
   width: min(340px, calc(100vw - 24px));
   min-width: 260px;
   min-height: 220px;

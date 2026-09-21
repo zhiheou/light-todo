@@ -90,7 +90,11 @@ function panelStyle(
   const margin = 12;
   // 面板实际可用高度：小窗口时压缩（底部输入框始终在屏内是硬约束）
   const availH = Math.max(240, Math.min(PANEL_H, vh - margin * 2));
-  if (!petPos) return { right: margin, bottom: 92 };
+  // 统一用 left/top 定位（而非 right/bottom）：这样 resize:both 拖拽才会自然向右下变大，
+  // 不会出现"只能向右拉、上下拉不动"。
+  if (!petPos) {
+    return { left: Math.max(margin, vw - PANEL_W - margin), top: Math.max(margin, vh - availH - 92), maxHeight: availH };
+  }
   // 左右：默认宠物右侧，放不下翻左侧；最后整体 clamp 进屏
   let left = petPos.x + petPos.w + margin;
   if (left + PANEL_W > vw - margin) left = petPos.x - PANEL_W - margin;
@@ -98,16 +102,15 @@ function panelStyle(
 
   const petTop = petPos.y;
   const roomAbove = petTop - margin;
-  // 1) 宠物上方够高 → 面板悬在宠物正上方：底边贴宠物顶（输入框在宠物上方、永不被挡）
+  // 1) 宠物上方够高 → 面板底边贴宠物顶（用 top 表达）
   if (roomAbove >= availH) {
-    return { left, bottom: vh - petTop + 6, right: "auto", top: "auto", maxHeight: availH };
+    const top = Math.max(margin, petTop - availH - 6);
+    return { left, top, maxHeight: availH };
   }
-  // 2) 上方不够 → 放宠物下方；**面板底部 clamp 永不超屏**（输入框绝不跑出屏外）
+  // 2) 上方不够 → 放宠物下方；底部 clamp 永不超屏
   const belowTop = petTop + petPos.h + margin;
-  const clampedTop = Math.min(belowTop, vh - availH - margin);
-  // 3) 若 clamp 后顶到屏顶仍放不下（屏极矮），从屏顶放起，面板高度已按 vh 压缩
-  const top = Math.max(margin, clampedTop);
-  return { left, top, right: "auto", bottom: "auto", maxHeight: availH };
+  const top = Math.max(margin, Math.min(belowTop, vh - availH - margin));
+  return { left, top, maxHeight: availH };
 }
 
 /** 聊天瞬时 mood → 长期表情映射（轻宜主导表情） */
@@ -162,6 +165,10 @@ export default function MascotAssistant({
   const [confirmAll, setConfirmAll] = useState<boolean>(() => loadConfirmAll(mode));
   /** 能力设置面板是否展开 */
   const [abilityOpen, setAbilityOpen] = useState(false);
+  /** v3.9 多候选待选：本地列了候选等用户选，记住它们（防"用户回名字却漏给AI"） */
+  const [pendingChoices, setPendingChoices] = useState<
+    Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }> | null
+  >(null);
   /** 已保存提示 */
   const [savedHint, setSavedHint] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
@@ -213,6 +220,7 @@ export default function MascotAssistant({
     setPendingDelete(null);
     setAwaitingGrant(null);
     setPendingFeeling(null);
+    setPendingChoices(null);
     setAbility(loadAbility(mode));
     setConfirmAll(loadConfirmAll(mode));
   }, [mode]);
@@ -294,6 +302,7 @@ export default function MascotAssistant({
     setPendingDelete(null);
     setAwaitingGrant(null);
     setPendingFeeling(null);
+    setPendingChoices(null);
     setMood("idle");
     setUnread(0);
   }
@@ -407,6 +416,56 @@ export default function MascotAssistant({
     const text = (raw ?? input).trim();
     if (!text || thinking) return;
     setInput("");
+
+    // v3.9 候选待选：上一步列了候选，这一步用户回名字/序号 → 直接命中（绝不漏给 AI）
+    if (pendingChoices) {
+      const t0 = text.trim();
+      const num = t0.match(/^([1-9])\d*$/);
+      let hit =
+        (num ? pendingChoices[Number(num[1]) - 1] : undefined) ??
+        pendingChoices.find((c) => c.title === t0) ??
+        pendingChoices.find((c) => t0.includes(c.title) || c.title.includes(t0));
+      if (hit) {
+        setChat((prev) => ({ ...prev, [mode]: [...prev[mode], { role: "user", text, ts: Date.now() }] }));
+        setPendingChoices(null);
+        setMood("happy");
+        const target = tasks.find((x) => x.id === hit!.id);
+        if (!target) {
+          pushBot("这条任务好像已经不在了，你再说一次？");
+          return;
+        }
+        if (hit.op === "delete") {
+          if (isBlocked("delete", ability)) {
+            pushBot("我现在是「只读陪聊」模式，不能删～右上角 ⚙ 调成标准或全权就行。");
+            return;
+          }
+          if (ability === "full" && deleteGranted) {
+            onDeleteTask(target);
+            triggerAct("done");
+            pushBot(`已删掉「${target.title}」。`);
+          } else if (!deleteGranted) {
+            setAwaitingGrant({ candidateId: target.id });
+            pushBot(needDeleteGrantReply().text);
+          } else {
+            setPendingDelete({ candidateId: target.id });
+            pushBot(`你确定要删除「${target.title}」吗？删除后可以撤销。`);
+          }
+        } else if (hit.op === "complete" || hit.op === "uncomplete") {
+          if (isBlocked("update", ability)) {
+            pushBot("我现在是「只读陪聊」模式，不能改～右上角 ⚙ 调成标准或全权就行。");
+            return;
+          }
+          onToggleTask(target);
+          triggerAct("done");
+          pushBot(hit.op === "complete" ? `好，完成「${target.title}」✅` : `好，把「${target.title}」标回未完成。`);
+        } else {
+          pushBot(`要把「${target.title}」改成什么？比如「改到明天下午3点」。`);
+        }
+        return;
+      }
+      // 没匹配上：清掉候选，继续走正常流程（但下面 localOnly 会兜底）
+      setPendingChoices(null);
+    }
     // v3.8.1 C：若正在问"要不要记心情备忘"，先判断是/否
     if (pendingFeeling) {
       if (isConfirmRecord(text)) {
@@ -513,6 +572,8 @@ export default function MascotAssistant({
     // 本地小脑先判断动作（建/删/确认 仍走本地规则）
     const ctx: BrainCtx = { tasks, persona: mode };
     const local = answer(text, ctx);
+    // 记住本地给出的候选（用户下一步选时用）
+    if (local.choices && local.choices.length > 0) setPendingChoices(local.choices);
 
     // 若有动作（建任务/备忘/删除/确认）→ 本地执行 + 回执（不依赖 AI）
     if (local.action) {

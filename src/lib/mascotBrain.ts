@@ -45,6 +45,11 @@ export interface BrainReply {
    * 用于"意图已识别但没办成"（如没找到要删的任务）——否则 AI 会编造"已帮你删除"。
    */
   localOnly?: boolean;
+  /**
+   * v3.9 多候选待选：本地列出了几个候选让用户选，调用方需**记住**，
+   * 用户下一条回复先来这里匹配（否则"开会"会被漏给 AI 编造）。
+   */
+  choices?: Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }>;
 }
 
 /** 用户对"要不要记一条心情备忘"回"好/记吧" → 真正执行记录（带 #心情 标签） */
@@ -179,8 +184,12 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   // 多个候选：让用户确认是哪一个
   const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-  return { text: `找到几个任务，你说哪一个？
-${list}`, localOnly: true };
+  return {
+    text: `找到几个任务，你说哪一个？
+${list}`,
+    localOnly: true,
+    choices: candidates.map((t) => ({ id: t.id, title: t.title, op: "delete" as const })),
+  };
 }
 
 /** v3.9 完成/取消完成："完成了 开会" / "把开会标成已完成" / "开会做完了" */
@@ -198,7 +207,12 @@ function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   if (candidates.length > 1) {
     const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-    return { text: `找到几个，你说哪个？\n${list}` };
+    return {
+      text: `找到几个，你说哪个？
+${list}`,
+      localOnly: true,
+      choices: candidates.map((t) => ({ id: t.id, title: t.title, op: (undoWord ? "uncomplete" : "complete") as "complete" | "uncomplete" })),
+    };
   }
   const t = candidates[0];
   return {
@@ -222,7 +236,12 @@ function tryUpdate(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   if (candidates.length > 1) {
     const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-    return { text: `找到几个，你说哪个？\n${list}` };
+    return {
+      text: `找到几个，你说哪个？
+${list}`,
+      localOnly: true,
+      choices: candidates.map((t) => ({ id: t.id, title: t.title, op: "update" as const })),
+    };
   }
   const t = candidates[0];
   // 用 NLP 解析新时间；也支持改优先级
