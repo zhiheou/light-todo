@@ -167,13 +167,14 @@ export function lullChatter(ctx: BrainCtx): string {
 
 /** 判断文本是否意图"删除/清理某任务"：抽出候选标题关键字 */
 function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
+  raw = raw.replace(/[。．.!！？?，,、；;：:\s]+/g, " ").trim(); // 去标点
   const del = /(删|删除|清掉|去掉|移除|划掉)/.test(raw);
   if (!del) return null;
   const kw = raw
     .replace(/(帮我|请|你|把|那|个|这条|这个|刚才的|刚刚的|刚才|刚刚|之前|的记录|记录|条目|条|任务|待办|删掉|删除|清掉|去掉|移除|划掉|一下|的)/g, "")
     .trim();
   // 找标题包含关键字的未完成任务
-  const candidates = ctx.tasks.filter((t) => kw && t.title.includes(kw));
+  const candidates = matchTasks(ctx.tasks, kw);
   if (candidates.length === 0) {
     // 防幻觉：意图明确但没匹配到 → 本地定论，绝不转 AI（否则 AI 会编"已删除"）
     return { text: "抱歉，我没找到要删的任务。能说得更具体一点吗？比如「删掉 开会」。", localOnly: true };
@@ -187,7 +188,7 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
     };
   }
   // 多个候选：让用户确认是哪一个
-  const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+  const list = candidates.map(fmtCand).join("\n");
   return {
     text: `找到几个任务，你说哪一个？
 ${list}`,
@@ -196,26 +197,48 @@ ${list}`,
   };
 }
 
+
+/** 宽松匹配任务：用户说法和任务名常不同序（"周报写完了" vs "写周报"）→ 双向包含 + 去动词后缀 */
+function matchTasks(pool: Task[], kw: string): Task[] {
+  if (!kw) return [];
+  const norm = (x: string) => x.replace(/[的了着过完]/g, "");
+  const k = norm(kw);
+  return pool.filter((t) => {
+    const title = t.title;
+    if (title.includes(kw) || kw.includes(title)) return true; // 双向包含
+    const nt = norm(title);
+    if (!k || !nt) return false;
+    return nt.includes(k) || k.includes(nt) || (k.length >= 2 && nt.includes(k.slice(0, 2)));
+  });
+}
+
+/** 候选列表格式化：带日期，用户才分得清同名任务 */
+function fmtCand(t: Task, i: number): string {
+  const when = t.dueDate ? `（${t.dueDate}${t.dueTime ? " " + t.dueTime : ""}）` : "（未设日期）";
+  return `${i + 1}. ${t.title}${when}`;
+}
+
 /** v3.9 完成/取消完成："完成了 开会" / "把开会标成已完成" / "开会做完了" */
 function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
+  raw = raw.replace(/[。．.!！？?，,、；;：:\s]+/g, " ").trim(); // 去标点，防"完成开会。""？？？完成开会"匹配失败
   // 问句排除：问"还有多少/哪些/几个/剩"等 → 是查询，不是要完成某任务（否则会答非所问）
   if (/(还有|还剩|剩下|多少|几个|哪些|有没有|检查|看看|看下|列出|列一下)/.test(raw)) return null;
   // 期限+事务排除："月底前完成预算" = 要建的任务（完成的是"预算"这件事），不是标记某待办完成。
   // 特征：有期限词（前/之前/月底/尽快…）且"完成"后面跟的是"事情"而非已有任务名。
   if (/(前|之前|以前|月底|月末|尽快|尽早|抓紧)/.test(raw) && /(完成|做完|搞定|办好|弄好)/.test(raw)) return null;
-  const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了)/.test(raw);
+  const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|写完了|写完|开完了|开完|会开完了|弄好了|办好了|搞定了|好了)/.test(raw);
   const undoWord = /(取消完成|没完成|又没做|恢复|撤销完成|还没做)/.test(raw);
   if (!doneWord && !undoWord) return null;
   const kw = raw
     .replace(/(帮我|请|你|把|那|个|这条|这个|任务|待办|已经|一下|标成|标记|为|已完成|完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|取消完成|没完成|又没做|恢复|撤销完成|还没做|了|的)/g, "")
     .trim();
   const pool = ctx.tasks.filter((t) => (undoWord ? t.completed : !t.completed));
-  const candidates = kw ? pool.filter((t) => t.title.includes(kw)) : [];
+  const candidates = matchTasks(pool, kw);
   if (candidates.length === 0) {
     return { text: `没找到要${undoWord ? "取消完成" : "完成"}的任务。说具体点？比如「完成了 开会」。`, localOnly: true };
   }
   if (candidates.length > 1) {
-    const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+    const list = candidates.map(fmtCand).join("\n");
     return {
       text: `找到几个，你说哪个？
 ${list}`,
@@ -239,12 +262,12 @@ function tryUpdate(raw: string, ctx: BrainCtx): BrainReply | null {
   if (!m) return null;
   const kw = m[1].replace(/(帮我|请|你|那|个|这条|这个|任务|待办)/g, "").trim();
   const rest = m[2].trim();
-  const candidates = ctx.tasks.filter((t) => kw && t.title.includes(kw) && !t.completed);
+  const candidates = matchTasks(ctx.tasks.filter((t) => !t.completed), kw);
   if (candidates.length === 0) {
     return { text: `没找到要改的任务。说具体点？比如「把开会改到明天下午3点」。`, localOnly: true };
   }
   if (candidates.length > 1) {
-    const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+    const list = candidates.map(fmtCand).join("\n");
     return {
       text: `找到几个，你说哪个？
 ${list}`,
@@ -292,10 +315,19 @@ function tryFeeling(raw: string): BrainReply | null {
 }
 
 function tryAddMemo(raw: string): BrainReply | null {
+  // "记账/记事：xxx" 这类"记"字头 → 按备忘处理
+  const quick = raw.match(/^(?:记账|记事|记一笔)[:：]?\s*(.*)$/);
+  if (quick && quick[1].trim()) {
+    return { text: `好，记到备忘录里了：
+「${quick[1].trim()}」`, action: { type: "addMemo", text: quick[1].trim() } };
+  }
   const m = raw.match(/(?:记到|写进|存到|加到|放进)?(?:备忘录|记事本|备注)(?:里|中|上面)?[:：]?\s*(.+)/);
   if (!m) return null;
   const text = m[1].trim();
-  if (!text) return null;
+  // 只有标点/语气词 → 不记（"记到备忘录：" 空内容应引导）
+  if (!text || /^[。．.!！？?，,、；;：:\s]+$/.test(text) || /^[了哦嗯啊吧呢]+$/.test(text)) {
+    return { text: "想记什么内容呀？说「记到备忘录：<内容>」我就帮你记下。", localOnly: true };
+  }
   // 去掉结尾语气词
   const cleaned = text.replace(/^(帮我|请|麻烦)/, "").trim();
   // 若这条备忘本身像在宣泄心情，自动带上 #心情 标签
@@ -310,6 +342,7 @@ function stripHelp(raw: string): string {
   // 尾部外壳：…帮我记一下 / 帮我记 / 记一下
   s = s.replace(/\s*(?:帮我|给我|替我)?\s*(?:记(?:个)?(?:一下)?|安排一下|加一下)\s*$/i, "");
   // 记得/别忘了… 开头（须先于通用"记"外壳，否则 记得 的"记"会被误剥）
+  s = s.replace(/^(?:记录|记事|记)[\s，,：:、]+/i, ""); // 记录：/记事： 外壳
   s = s.replace(/^(?:记得|别忘了|记住)[\s，,：:的]*/i, "");
   // 开头外壳（可带可不带标点/的）：帮我记个待办 / 添加个任务 / 设个提醒…
   s = s.replace(/^(?:帮我|给我|替我)?\s*(?:记|建|添加|加|设|安排|存|放)(?:个|一个|一下)?\s*(?:待办|任务|事项|备忘录|提醒)?\s*(?:里|中|上面)?[\s，,：:的]*/i, "");
@@ -328,17 +361,20 @@ function tryAddTask(raw: string): BrainReply | null {
   if (!cleaned || fillers.test(cleaned)) {
     return { text: "想记什么待办呀？跟我说下内容就行，比如「明天下午3点交周报」。" };
   }
+  // "取消X/不开了"是撤销意图，不是新建任务
+  if (/^(取消|撤了|不开了|不办了|算了不|别记)/.test(raw.trim())) return null;
   const parsed = parseQuickAdd({ title: cleaned, notes: "", now });
   // 明确"要建任务"的信号：原句有建动作词，或（解析出时间/日期 且 像待办内容）。
   // 避免"今天天气不错"这类闲聊被误当成任务（今天也会被 NLP 填成日期）。
-  const hasVerb = /(帮我记|给我记|记一下|记个|记下来|帮我记个|安排|添加|新建|创建|设个|提醒我|帮我约|帮我排|帮我建|建个|加个|存个|放个|记得|记着)/.test(raw);
+  const hasVerb = /(帮我|给我|替我|请|麻烦|帮忙|记一下|记个|记下来|安排|添加|新建|创建|设个|提醒我|建个|加个|存个|放个|记得|记着)/.test(raw) &&
+    !/(写代码|编程|翻译|算题|推荐|讲个笑话|天气|股票|彩票)/.test(raw);
   const hasTime = !!parsed.dueDate || !!parsed.dueTime;
   const todoMark = /(待办|任务|开会|开个会|会议|会|约|安排|面试|出差|请假|汇报|交[^，。]*|买|取|寄|送|取快递|修|准备|打卡|回复|周报|月报|报表|文案|材料|东西|事情|例会|健身|运动|锻炼|学习|读书|复习|考试|体检|缴费|还款|报名|打车|订票|合同|对接|整理|预算|方案|房租|水电|喝水|吃药|锻炼|接|送|办|弄|搞|清|洗|打扫|预约|挂号|报销|签字|盖章)/.test(cleaned);
   // 闲聊特征：明显不是任务（避免"今天天气不错"被当任务）
   const chitchat = /(天气|心情|感觉|觉得|好像|不错|真好|开心|难过|累了|好累|好烦|怎么样啊|是吗|哈哈)/.test(cleaned) && !hasVerb;
   if (chitchat) return null;
   // 疑问/查询句一律不建任务（"还有哪些待办""明天有事吗""这个怎么弄"都是问句）
-  const isQuestion = /[?？]|(还有|还剩|哪些|什么|怎么|如何|为什么|为啥|是否|有没有|能不能|可不可以|多久|几点|在哪|是谁)|(吗|呢|么)$/.test(raw.trim());
+  const isQuestion = /[?？]|(还有|还剩|哪些|什么|怎么|如何|为什么|为啥|是否|有没有|能不能|可不可以|多久|几点|几号|星期几|周几|在哪|是谁)|(吗|呢|么)$/.test(raw.trim());
   if (isQuestion && !hasVerb) return null;
   // 放宽：有动作词 / 有任务标记 / 有明确时间 —— 三者之一即可建（真人说话不会都带"帮我记"）
   if (!hasVerb && !todoMark && !hasTime) return null;
@@ -394,7 +430,7 @@ function tryQuery(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   if (askTomorrow) {
     const tomorrowList = ctx.tasks.filter((t) => !t.completed && t.dueDate === tKey);
-    if (tomorrowList.length === 0) return { text: `明天（${niceDay(tomorrow, now)}）没有安排。` };
+    if (tomorrowList.length === 0) return { text: "明天没有安排。" };
     const list = tomorrowList.slice(0, 8).map(fmtTask).join("\n");
     return { text: `明天（${niceDay(tomorrow, now)}）有 ${tomorrowList.length} 件：\n${list}` };
   }
@@ -463,8 +499,9 @@ const OFF_TOPIC = [
   "股票预测", "加密货币", "比特币", "推荐股票", "彩票",
   "赌博", "违法", "破解", "黑客", "入侵", "攻击", "暴力",
   "色情", "成人", "毒品", "武器", "钓鱼", "诈骗",
+  "中美关系", "特朗普", "拜登", "政治", "选举", "报复", "整治", "整死", "搞垮",
   "数学题", "解方程", "算一下这个", "物理题", "化学", "作业",
-  "新闻", "天气怎么样", "今天几号农历", "帮我查",
+  "新闻", "今天几号农历", "帮我查",
   "怎么做菜", "菜谱", "推荐电影", "推荐书", "推荐音乐", "讲个故事", "讲个笑话",
 ];
 const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
@@ -472,7 +509,7 @@ const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
 /** 正则型离题：推荐/查询类（措辞多变，用模式而非固定词） */
 const OFF_TOPIC_PATTERNS = [
   /推荐.{0,4}(电影|剧|书|音乐|歌|游戏|餐厅|地方|景点|动漫)/,
-  /(天气|气温|下雨|温度).{0,3}(怎么样|如何|如何样|预报)?/,
+
   /(讲|说).{0,3}(个)?(笑话|故事|段子)/,
   /(翻译|解释|总结|润色|改写).{0,4}(一下|这段|这句|下)/,
   /(算|解).{0,2}(一下|个)?(方程|数学|题)/,
@@ -494,7 +531,11 @@ export function isOffTopic(raw: string): boolean {
   if (BUILD_VERB_RE.test(t) && CODE_NOUN_RE.test(t) && !hasTime && !hasTodoWord) return true;
   // 明显的"帮我做件事/答个题/查个东西"但没提任务/备忘/情绪 → 拒绝进 AI
   const SERVICE_REQ = /^(帮我|请|给我|能不能|可以|麻烦|帮忙|帮我弄|搞)/;
-  if (SERVICE_REQ.test(t) && !hasTodoWord && !/(心情|累|烦|难过|焦虑|开心)/.test(t)) return true;
+  // 但"帮我+日常事务动词"是交代办，不是越界（帮我买/取/发/寄/交/订/约…）
+  const TASK_ACTION = /^(帮我|请|给我|麻烦|帮忙)\s*(把|将)?\s*(买|取|拿|寄|发|送|交|订|约|抢|排|写|做|准备|整理|打印|复印|预约|挂号|报销|报名|充|缴|还|存|放|修|洗|换|租|退|领|填|签|盖章|联系|回复|通知|催|跟进)/;
+  // "帮我把<事务名词>…" 也是交代办（如"帮我把方案发给老王"）——事务名词出现即放行
+  const TASK_NOUN = /(方案|周报|月报|报表|报告|材料|合同|快递|外卖|房租|水电|预算|发票|报销单|简历|文件|资料|名单|链接|图片|照片|账号|密码|证件|票|钱|款|货|药|菜|饭|单子)/;
+  if (SERVICE_REQ.test(t) && !TASK_ACTION.test(t) && !TASK_NOUN.test(t) && !hasTodoWord && !/(心情|累|烦|难过|焦虑|开心)/.test(t)) return true;
   return false;
 }
 
@@ -524,15 +565,24 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (q) return q;
   const memo = tryAddMemo(text);
   if (memo) return memo;
-  const feel = tryFeeling(text);
-  if (feel) return feel;
+  // 情绪+任务混合（"烦死了明天还要开会"）：句中有明确时间/事务 → 先建任务，不被情绪截胡
+  const hasTaskIntent = /(明天|后天|下周|今天|周[一二三四五六日天]|\d+点|\d+[号日])/.test(text) &&
+    /(开会|会议|交|提交|写|做|买|取|发|去|见|约|安排|报告|周报|方案|材料)/.test(text);
+  if (!hasTaskIntent) {
+    const feel = tryFeeling(text);
+    if (feel) return feel;
+  }
   const task = tryAddTask(text);
   if (task) return task;
+  if (hasTaskIntent) {
+    const feel2 = tryFeeling(text);
+    if (feel2) return feel2;
+  }
   // 兜底 1：看起来像"一件小事"（短、无标点、非疑问、不像查询）→ 猜+确认（不说"听不懂"）
   const looksLikeThing =
     /^[一-龥A-Za-z0-9]{2,14}$/.test(text.trim()) &&
     !/[?？]/.test(text) &&
-    !/(还有|还剩|剩下|多少|几个|哪些|有没有|什么|怎么|为啥|为什么|吗|呢|待办|任务|安排|提醒)/.test(text);
+    !/(还有|还剩|剩下|多少|几个|哪些|有没有|什么|怎么|为啥|为什么|吗|呢|几点|几号|星期几|待办|任务|安排|提醒)/.test(text);
   if (looksLikeThing) {
     return {
       text: `你是想让我记下「${text.trim()}」吗？回「记下来」我就建，或者直接说「记个待办：${text.trim()}」。`,

@@ -2,11 +2,29 @@
 // 存储内容：用户名 + 密码 + keySalt。E2EE 下解密 workspace 需要密码派生密钥，
 // 所以密码必须保存；配合 HttpOnly cookie（服务器 30 天会话）实现刷新免登录。
 const KEY = "lighttodo:account:v1";
+const REVALIDATED_KEY = "lighttodo:account-revalidated:v1";
 
 export interface StoredSession {
   username: string;
   password: string;
   keySalt: string;
+}
+
+// v3.9.2 perf：同一次浏览器会话内已完整校验过（PBKDF2+解密成功），刷新时跳过完整校验、直接用缓存密钥出首屏
+export function wasSessionRevalidated(username: string): boolean {
+  try {
+    return sessionStorage.getItem(REVALIDATED_KEY) === username;
+  } catch {
+    return false;
+  }
+}
+
+export function markSessionRevalidated(username: string): void {
+  try {
+    sessionStorage.setItem(REVALIDATED_KEY, username);
+  } catch {
+    // ignore
+  }
 }
 
 export function getStoredSession(): StoredSession | null {
@@ -38,6 +56,7 @@ export function saveStoredSession(session: StoredSession): void {
 export function clearStoredSession(): void {
   try {
     sessionStorage.removeItem(KEY);
+    sessionStorage.removeItem(REVALIDATED_KEY);
   } catch {
     // ignore
   }

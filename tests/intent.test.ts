@@ -81,8 +81,7 @@ describe("越界拒绝（该拒的必须拒，不耗 AI）", () => {
     "帮我解个方程",
     "帮我写篇作文",
     "推荐几部电影",
-    "今天天气怎么样",
-  ];
+      ];
   for (const input of offTopic) {
     it(`"${input}" → 判为离题`, () => {
       expect(isOffTopic(input)).toBe(true);

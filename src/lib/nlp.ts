@@ -99,6 +99,11 @@ function parseTime(text: string): TimeParse | null {
     else if (suffix === "三刻") minute = 45;
     else if (suffix) minute = Number(suffix.replace(/分$/, "")) || 0;
     const isPm = /(下午|晚上|傍晚)/.test(text);
+    const isNight = /(今晚|晚上|夜里|半夜)/.test(text);
+    // "今晚12点" = 午夜（不是中午12点）→ 记 23:59（当天最后一刻，不回退到次日）
+    if (isNight && hour === 12 && minute === 0) {
+      return { time: "23:59", isPm: true };
+    }
     // 注意：不做"裸小时默认下午"的推断——那会把常见的"8点/10点"错成 20:00/22:00，
     // 比"四点=04:00"更糟。保持用户字面表达，需下午时用户会说"下午四点"。
     if (isPm && hour < 12) hour += 12;
@@ -115,8 +120,8 @@ const STRIP_RULES: RegExp[] = [
   /每个工作日|工作日/g,
   /每(?:隔)?\d{1,2}天/g,
   /每天|每日/g,
-  /(?:这|本|下)?(?:周|星期)[一二三四五六日天]/g,
-  /(?:下|本|这)个?月|周末|尽快|尽早|抓紧/g,
+  /(?:下下|这|本|下)?(?:周|星期)[一二三四五六日天]/g,
+  /(?:下|本|这)个?月|月初|周末|尽快|尽早|抓紧/g,
   /今天|明天|后天|大后天/g,
   /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
   /月(?:底|末)/g,
@@ -127,7 +132,8 @@ const STRIP_RULES: RegExp[] = [
   /\d{4}-\d{1,2}-\d{1,2}/g,
   /\d{1,2}[:：]\d{1,2}/g,
   /\d{1,2}点(?:半|一刻|三刻|\d{1,2}分?)?/g,
-  /\d{1,2}\s*(?:天|日)\s*(?:之?内|内)/g,
+  /\d{1,2}\s*(?:天|日)\s*(?:之?内|内)?/g,
+  /[\d一二两三四五六七八九十]+\s*个?\s*小时(?:后|之后)|[\d一二两三四五六七八九十]+|半\s*分钟?(?:后|之后)/g,
   /提醒/g,
 ];
 
@@ -239,9 +245,14 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
   // ---- 日期规则（循环已设 dueDate 时，显式日期可覆盖）----
   // 「周几」：A) "周/星期"带限定词这/本/下；B) 裸"周五"（仅当句首/空格后，避免"三"在"买三斤"误判）。
   // 今天周五 09-04 →「周五」「这周五」=今天；「下周五」=09-11；「下周二」=09-08。
-  const weekdayDate = merged.match(/(下|这|本)?(?:周|星期)([一二三四五六日天])/);
+  const weekdayDate = merged.match(/(下下|下|这|本)?(?:周|星期)([一二三四五六日天])/);
   const bareWeekday = merged.match(/(^|[\s,，。.!！?？:：;；(（])([一二三四五六日天])(前|之前|以前|下班前|完成|交|给|发|开会|会议|汇总|提交|汇报|截止)/);
   const parseWeekdayAnchor = (day: number, which?: string): Date => {
+    if (which === "下下") {
+      const d = nextWeekday(day, startOfNextWeek(now));
+      d.setDate(d.getDate() + 7); // 再下一周
+      return d;
+    }
     if (which === "下") return nextWeekday(day, startOfNextWeek(now));
     return nextWeekday(day, now); // 这/本/无词：不早于今天的最近一次（今天若是就今天）
   };
@@ -260,11 +271,38 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     dueDate = toDateString(nextWeekday(6, now)); // 周六
   }
   if (/(下|本|这)个月/.test(merged) && !dueDate) {
-    const d = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-    dueDate = toDateString(d);
+    // "下个月5号" → 下月5号（而非本月）
+    const dm = merged.match(/([\d]{1,2})[日号]/);
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, dm ? Number(dm[1]) : now.getDate());
+    dueDate = toDateString(nextMonth);
+  }
+  if (/月初/.test(merged) && !dueDate) {
+    dueDate = toDateString(new Date(now.getFullYear(), now.getMonth() + 1, 1)); // 下月1号
   }
   if (/(尽快|尽早|抓紧)/.test(merged) && !dueDate) {
     dueDate = toDateString(now);
+  }
+
+  // 相对时间："两个小时后/半小时后/30分钟后/一会儿/待会儿"
+  const relHour = merged.match(/([\d一二两三四五六七八九十]+)\s*个?\s*小时(?:后|之后)/);
+  const relHalfHour = /半\s*个?\s*小时(?:后|之后)/.test(merged); // "半小时后"
+  const relMin = merged.match(/([\d一二两三四五六七八九十]+)\s*分钟?(?:后|之后)/);
+  const relSoon = /(待会|待会儿|一会儿|马上|立刻)/.test(merged); // 模糊"一会儿"→ 30 分钟后
+  if ((relHour || relMin || relHalfHour || relSoon) && !dueTime) {
+    let addMin = 0;
+    if (relHour) {
+      const h = /^\d+$/.test(relHour[1]) ? Number(relHour[1]) : cnToNum(relHour[1]) ?? 0;
+      addMin = h * 60;
+    } else if (relHalfHour) {
+      addMin = 30;
+    } else if (relMin) {
+      addMin = /^\d+$/.test(relMin[1]) ? Number(relMin[1]) : cnToNum(relMin[1]) ?? 0;
+    } else if (relSoon) {
+      addMin = 30;
+    }
+    const d = new Date(now.getTime() + addMin * 60000);
+    dueDate = toDateString(d);
+    dueTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   const relative = merged.match(/(今天|明天|后天)/);
@@ -281,7 +319,8 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     const today = startOfDay(now);
     if (d.getTime() < today.getTime()) d.setFullYear(year + 1);
     dueDate = toDateString(d);
-  } else {
+  } else if (!dueDate) {
+    // 注意：仅在还没算出日期时才用"X号"兜底，否则会覆盖"下个月5号"已算出的 10-05
     const dayOfMonth = merged.match(/(\d{1,2})[日号]/);
     if (dayOfMonth && !repeat) {
       dueDate = toDateString(nextMonthlyDay(Number(dayOfMonth[1]), now));

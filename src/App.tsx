@@ -56,6 +56,7 @@ import {
 } from "./lib/personalLock";
 import {
   decryptAppData,
+  decryptAppDataFast,
   encryptAppData,
   fetchWorkspace,
   loginAccount,
@@ -68,7 +69,9 @@ import {
   clearStoredSession,
   getStoredSession,
   isNetworkError,
+  markSessionRevalidated,
   saveStoredSession,
+  wasSessionRevalidated,
 } from "./lib/session";
 
 interface ToastState {
@@ -737,6 +740,18 @@ export default function App() {
     [resetAllLocalData, showToast],
   );
 
+  /** 把解密出的整份 AppData 铺进 state（handleLogin 与后台校验共用） */
+  const applyAppData = useCallback((data: AppData) => {
+    setWorkTasks(normalizeTasks(data.workTasks || []));
+    setWorkMemos(normalizeMemos(data.workMemos || []));
+    setPersonalTasks(normalizeTasks(data.personalTasks || []));
+    setPersonalMemos(normalizeMemos(data.personalMemos || []));
+    setWorkDimensions(normalizeDimensions(data.workDimensions || []));
+    setWorkGoals(normalizeGoals(data.workGoals || []));
+    setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
+    setPersonalGoals(normalizeGoals(data.personalGoals || []));
+  }, []);
+
   const handleLogin = useCallback(
     async (username: string, password: string) => {
       const login = await loginAccount(username, password);
@@ -750,14 +765,7 @@ export default function App() {
           login.keySalt,
         );
         if (!data) throw new Error("数据解密失败，请确认账号密码正确");
-        setWorkTasks(normalizeTasks(data.workTasks || []));
-        setWorkMemos(normalizeMemos(data.workMemos || []));
-        setPersonalTasks(normalizeTasks(data.personalTasks || []));
-        setPersonalMemos(normalizeMemos(data.personalMemos || []));
-        setWorkDimensions(normalizeDimensions(data.workDimensions || []));
-        setWorkGoals(normalizeGoals(data.workGoals || []));
-        setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
-        setPersonalGoals(normalizeGoals(data.personalGoals || []));
+        applyAppData(data);
       } else {
         // 账号无数据（罕见：老空号）→ 用全新 seed，绝不从残留 state 收集
         const now = new Date();
@@ -778,6 +786,7 @@ export default function App() {
         await saveWorkspace(payload);
       }
       saveStoredSession({ username, password, keySalt: login.keySalt });
+      markSessionRevalidated(username);
       setAccount({ username });
       setAccountKeySalt(login.keySalt);
       setAccountPassword(password);
@@ -786,7 +795,79 @@ export default function App() {
       setView("today");
       showToast("登录成功，数据已同步");
     },
-    [resetAllLocalData, showToast],
+    [applyAppData, resetAllLocalData, showToast],
+  );
+
+  // v3.9.2 perf：刷新恢复会话（同会话内已完整校验过）→ 只用缓存密钥解密出首屏，
+  // 不跑 PBKDF2；服务端数据在后台解密核对，不一致才覆盖。完整校验仍由 30s 轮询兜底。
+  const handleSessionRestore = useCallback(
+    async (stored: { username: string; password: string; keySalt: string }) => {
+      const restoreStarted = Date.now();
+      const login = await loginAccount(stored.username, stored.password);
+      const workspace = await fetchWorkspace();
+      // 缓存命中（同一浏览器会话内刚完整校验过）→ 不走 PBKDF2，直接解密出首屏
+      let data = workspace?.data && workspace.iv
+        ? await decryptAppDataFast(
+            { iv: workspace.iv, data: workspace.data },
+            stored.password,
+            login.keySalt,
+          )
+        : null;
+      // 密钥不在缓存里（如新标签页重开且已过后台校验）→ 回退完整 PBKDF2 解密
+      if (!data && workspace?.data && workspace.iv) {
+        data = await decryptAppData(
+          { iv: workspace.iv, data: workspace.data },
+          stored.password,
+          login.keySalt,
+        );
+      }
+      resetAllLocalData();
+      if (data) {
+        applyAppData(data);
+      } else if (!workspace?.data) {
+        // 空账号：与 handleLogin 一致，用全新 seed 初始化并上传
+        const now = new Date();
+        const fresh: AppData = {
+          workTasks: seedTasks("work", now),
+          workMemos: seedMemos("work"),
+          personalTasks: [],
+          personalMemos: [],
+          workDimensions: [],
+          workGoals: [],
+          personalDimensions: [],
+          personalGoals: [],
+          updatedAt: Date.now(),
+        };
+        setWorkTasks(fresh.workTasks);
+        setWorkMemos(fresh.workMemos);
+        const payload = await encryptAppData(fresh, stored.password, login.keySalt);
+        await saveWorkspace(payload);
+      }
+      setAccount({ username: stored.username });
+      setAccountKeySalt(login.keySalt);
+      setAccountPassword(stored.password);
+      setAccountReady(true);
+      setAuthState("in");
+      setView("today");
+      markSessionRevalidated(stored.username);
+      // 后台完整校验：跑一遍 PBKDF2（真密钥校验）+ 解密最新密文；
+      // 期间用户没编辑（lastLocalEdit 早于恢复开始）且数据有差异才覆盖，防抖掉用户刚做的修改
+      void (async () => {
+        try {
+          const latest = await fetchWorkspace();
+          if (!latest?.data || !latest.iv) return;
+          const fresh = await decryptAppData(
+            { iv: latest.iv, data: latest.data },
+            stored.password,
+            login.keySalt,
+          );
+          if (fresh && lastLocalEdit.current < restoreStarted) applyAppData(fresh);
+        } catch {
+          // 网络抖动忽略；密码错误时后续轮询会持续失败
+        }
+      })();
+    },
+    [applyAppData, resetAllLocalData],
   );
 
   const handleLogout = useCallback(async () => {
@@ -820,8 +901,12 @@ export default function App() {
       setAuthState("gate");
       return;
     }
-    handleLogin(stored.username, stored.password)
-      .catch((err) => {
+    // v3.9.2 perf：本浏览器会话内已校验过 → 走快速恢复（缓存密钥，不等 PBKDF2）；
+    // 否则（首次打开/新标签页）→ 完整登录流程，保换设备/新会话的安全校验
+    const login = wasSessionRevalidated(stored.username)
+      ? handleSessionRestore(stored)
+      : handleLogin(stored.username, stored.password);
+    login.catch((err) => {
         if (isNetworkError(err)) {
           // 网络/代理问题：保留会话，提示重试
           setAuthError("网络异常，无法连接服务器，请稍后重试");
