@@ -144,3 +144,35 @@ describe("易混：'删掉开会' vs '怎么删掉任务' → 问法不该真删
     expect(r.action).toBeUndefined();
   });
 });
+
+describe("兜底升级：绝不说『听不懂』，改为猜+确认（调研最佳实践）", () => {
+  it("含时间但没识别出动作 → 猜是建任务并请确认", () => {
+    const r = answer("明天三点那事", CTX);
+    expect(r.text).not.toMatch(/暂时没太懂/);
+    expect(r.text).toMatch(/记下来|安排|待办/);
+  });
+
+  it("含『怎么/如何』→ 猜是在问用法", () => {
+    const r = answer("这个怎么弄啊", CTX);
+    expect(r.text).not.toMatch(/暂时没太懂/);
+    expect(r.text).toMatch(/擅长|建待办|问/);
+  });
+
+  it("完全不懂的句子 → 给能力菜单(带例子)，不说没懂", () => {
+    const r = answer("阿巴阿巴", CTX);
+    expect(r.text).not.toMatch(/暂时没太懂/);
+    expect(r.text).toMatch(/在行|记个待办|建待办/);
+  });
+
+  it("兜底话术里带上用户原话（显得在听）", () => {
+    const r = answer("xyzqwer", CTX);
+    expect(r.text).toContain("xyzqwer");
+  });
+
+  it("任何输入都不该出现『暂时没太懂』", () => {
+    for (const q of ["啊这", "嗯嗯嗯", "你说啥", "qwerty", "哈哈哈哈哈"]) {
+      const r = answer(q, CTX);
+      expect(r.text).not.toMatch(/暂时没太懂/);
+    }
+  });
+});

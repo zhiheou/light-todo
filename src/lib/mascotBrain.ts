@@ -515,20 +515,39 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (feel) return feel;
   const task = tryAddTask(text);
   if (task) return task;
-  // 兜底 1：看起来像"一件小事"（短、无标点、非疑问、不像查询）→ 主动问要不要记下来
+  // 兜底 1：看起来像"一件小事"（短、无标点、非疑问、不像查询）→ 猜+确认（不说"听不懂"）
   const looksLikeThing =
-    /^[一-龥A-Za-z0-9]{2,12}$/.test(text.trim()) &&
+    /^[一-龥A-Za-z0-9]{2,14}$/.test(text.trim()) &&
     !/[?？]/.test(text) &&
     !/(还有|还剩|剩下|多少|几个|哪些|有没有|什么|怎么|为啥|为什么|吗|呢|待办|任务|安排|提醒)/.test(text);
   if (looksLikeThing) {
     return {
-      text: `「${text.trim()}」——要我帮你记成待办吗？回「记下来」就行，或者直接说「记个待办：${text.trim()}」。`,
+      text: `你是想让我记下「${text.trim()}」吗？回「记下来」我就建，或者直接说「记个待办：${text.trim()}」。`,
       localOnly: true,
       quickAdd: text.trim(),
     };
   }
-  return {
-    text: "嗯……我暂时没太懂这句。（当前我是本地小助手，还在学习更多玩法）你可以试试：\n• 「明天下午3点开会」→ 我帮你建待办\n• 「把这个记到备忘录」\n• 「今天有什么安排」",
-    localOnly: true,
-  };
+  // 兜底 2：拿不准 → 猜+确认（照调研：绝不说"听不懂"，而是复述猜测让用户确认）
+  const guess = guessIntent(text);
+  if (guess) return { text: guess, localOnly: true };
+  // 兜底 3：能力菜单（带具体例子，不空泛）
+  return { text: fallbackMenu(text), localOnly: true };
+}
+
+/** 兜底·猜+确认：从关键词反推用户可能想干什么（比"没听懂"友好得多） */
+function guessIntent(raw: string): string | null {
+  const t = raw.trim();
+  if (/(今天|明天|后天|下周|本周|周[一二三四五六日天]|\d+点|\d+号|\d+日|上午|下午|晚上|早上)/.test(t)) {
+    return `你是想安排「${t}」这件事吗？\n回「记下来」我就建个待办。`;
+  }
+  if (/(怎么|如何|能不能|可不可以|有没有办法|教我)/.test(t)) {
+    return `这是在问我怎么做吗？我擅长：建待办、查今天、标完成、删任务。\n说说你想安排什么事，我帮你记下。`;
+  }
+  return null;
+}
+
+/** 兜底·能力菜单（最后一次兜底；带具体例子，不空泛） */
+function fallbackMenu(raw: string): string {
+  const short = raw.trim().slice(0, 12) + (raw.trim().length > 12 ? "…" : "");
+  return `这句我拿不太准，不过这些我很在行：\n• 「明天下午3点开会」→ 建待办\n• 「今天有什么安排」→ 查\n• 「完成了 开会」→ 标完成\n• 「好累啊」→ 陪你聊聊\n（刚才那句「${short}」想记下来的话，说「记个待办」就行）`;
 }
