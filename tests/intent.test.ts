@@ -114,3 +114,46 @@ describe("危险操作闸门：删除授权意图识别", () => {
     expect(isGrantDeleteIntent("帮我建个待办")).toBe(false);
   });
 });
+
+describe("v3.9 新能力：完成 / 更新 待办（对话直接操作）", () => {
+  const withTasks = (list: Array<Partial<any>>) =>
+    ctx(list.map((t, i) => ({ id: `t${i}`, title: "", notes: "", priority: 3, dueDate: "", dueTime: "", remindAt: "", completed: false, createdAt: 0, updatedAt: 0, ...t })));
+
+  it("「完成了 开会」→ completeTask(done=true)", () => {
+    const r = answer("完成了 开会", withTasks([{ title: "开会" }]));
+    expect(r.action).toMatchObject({ type: "completeTask", done: true });
+  });
+
+  it("「把开会做完了」→ completeTask", () => {
+    const r = answer("把开会做完了", withTasks([{ title: "开会" }]));
+    expect(r.action?.type).toBe("completeTask");
+  });
+
+  it("「取消完成 开会」→ completeTask(done=false)", () => {
+    const r = answer("取消完成 开会", withTasks([{ title: "开会", completed: true }]));
+    expect(r.action).toMatchObject({ type: "completeTask", done: false });
+  });
+
+  it("已完成的任务不该再被'完成'（找不到）", () => {
+    const r = answer("完成了 开会", withTasks([{ title: "开会", completed: true }]));
+    expect(r.action).toBeUndefined();
+  });
+
+  it("「把开会改到明天下午3点」→ updateTask(带新时间)", () => {
+    const r = answer("把开会改到明天下午3点", withTasks([{ title: "开会" }]));
+    expect(r.action?.type).toBe("updateTask");
+    expect((r.action as any).patch.dueDate).toBe("2026-09-05");
+    expect((r.action as any).patch.dueTime).toBe("15:00");
+  });
+
+  it("「把周报改成重要」→ updateTask 优先级", () => {
+    const r = answer("把周报改成重要", withTasks([{ title: "周报" }]));
+    expect(r.action?.type).toBe("updateTask");
+    expect((r.action as any).patch.priority).toBe(2);
+  });
+
+  it("找不到任务时不误操作", () => {
+    const r = answer("完成了 不存在的任务", withTasks([{ title: "开会" }]));
+    expect(r.action).toBeUndefined();
+  });
+});

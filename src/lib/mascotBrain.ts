@@ -1,4 +1,4 @@
-import type { QuickAddParse, Task } from "../types";
+import type { Priority, QuickAddParse, Task } from "../types";
 import { isOverdue } from "./tasks";
 import { parseQuickAdd } from "./nlp";
 
@@ -28,7 +28,10 @@ export type BrainAction =
   | { type: "confirm"; candidateId: string }
   | { type: "deleteTask"; id: string }
   /** v3.8.1：情绪 → 先共情，询问是否记录（用户确认才记） */
-  | { type: "askRecordFeeling"; text: string };
+  | { type: "askRecordFeeling"; text: string }
+  /** v3.9：完成/取消完成/更新 待办（对话直接操作） */
+  | { type: "completeTask"; id: string; done: boolean }
+  | { type: "updateTask"; id: string; patch: { title?: string; dueDate?: string; dueTime?: string; priority?: Priority } };
 
 export interface BrainReply {
   /** 给用户看的话 */
@@ -169,6 +172,64 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
   // 多个候选：让用户确认是哪一个
   const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
   return { text: `找到几个任务，你说哪一个？\n${list}` };
+}
+
+/** v3.9 完成/取消完成："完成了 开会" / "把开会标成已完成" / "开会做完了" */
+function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
+  const doneWord = /(完成|做完|搞定|办完|打勾|勾掉|弄完|做好了)/.test(raw);
+  const undoWord = /(取消完成|没完成|又没做|恢复|撤销完成|还没做)/.test(raw);
+  if (!doneWord && !undoWord) return null;
+  const kw = raw
+    .replace(/(帮我|请|你|把|那|个|这条|这个|任务|待办|已经|一下|标成|标记|为|已完成|完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|取消完成|没完成|又没做|恢复|撤销完成|还没做|了|的)/g, "")
+    .trim();
+  const pool = ctx.tasks.filter((t) => (undoWord ? t.completed : !t.completed));
+  const candidates = kw ? pool.filter((t) => t.title.includes(kw)) : [];
+  if (candidates.length === 0) {
+    return { text: `没找到要${undoWord ? "取消完成" : "完成"}的任务。说具体点？比如「完成了 开会」。` };
+  }
+  if (candidates.length > 1) {
+    const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+    return { text: `找到几个，你说哪个？\n${list}` };
+  }
+  const t = candidates[0];
+  return {
+    text: undoWord ? `好，把「${t.title}」标回未完成。` : `好，完成「${t.title}」✅`,
+    action: { type: "completeTask", id: t.id, done: !undoWord },
+  };
+}
+
+/** v3.9 更新/编辑："把开会改到明天3点" / "把周报改成重要" */
+function tryUpdate(raw: string, ctx: BrainCtx): BrainReply | null {
+  const editWord = /(改到|改成|改为|推迟到|延到|提前到|调整到|修改)/.test(raw);
+  if (!editWord) return null;
+  // 抽出"改到/改成/…"之前是目标关键字、之后是新时间/新属性
+  const m = raw.match(/(?:把)?(.+?)(?:改到|改成|改为|推迟到|延到|提前到|调整到|修改为|修改)(.+)/);
+  if (!m) return null;
+  const kw = m[1].replace(/(帮我|请|你|那|个|这条|这个|任务|待办)/g, "").trim();
+  const rest = m[2].trim();
+  const candidates = ctx.tasks.filter((t) => kw && t.title.includes(kw) && !t.completed);
+  if (candidates.length === 0) {
+    return { text: `没找到要改的任务。说具体点？比如「把开会改到明天下午3点」。` };
+  }
+  if (candidates.length > 1) {
+    const list = candidates.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
+    return { text: `找到几个，你说哪个？\n${list}` };
+  }
+  const t = candidates[0];
+  // 用 NLP 解析新时间；也支持改优先级
+  const p = parseQuickAdd({ title: rest, notes: "", now: ctx.now ?? new Date() });
+  const patch: { dueDate?: string; dueTime?: string; priority?: Priority } = {};
+  if (p.dueDate) patch.dueDate = p.dueDate;
+  if (p.dueTime) patch.dueTime = p.dueTime;
+  if (/重要|紧急|稍后|普通/.test(rest) && p.priority !== 3) patch.priority = p.priority;
+  if (Object.keys(patch).length === 0) {
+    return { text: `想把它改成什么？比如「把${kw}改到明天下午3点」。` };
+  }
+  const when = patch.dueDate ? `${patch.dueDate}${patch.dueTime ? " " + patch.dueTime : ""}` : "";
+  return {
+    text: `好，把「${t.title}」改成 ${when || "新设置"}。`,
+    action: { type: "updateTask", id: t.id, patch },
+  };
 }
 
 /** 判断文本是否"建备忘录" */
@@ -397,6 +458,10 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
   if (greet) return greet;
   const t = tryDelete(text, ctx);
   if (t) return t;
+  const done = tryComplete(text, ctx);
+  if (done) return done;
+  const upd = tryUpdate(text, ctx);
+  if (upd) return upd;
   const q = tryQuery(text, ctx);
   if (q) return q;
   const memo = tryAddMemo(text);

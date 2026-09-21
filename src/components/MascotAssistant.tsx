@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { Send, Trash2, X } from "lucide-react";
-import type { Mode, MascotMood, PetExpressionId, PetSkin, Task } from "../types";
+import type { Mode, MascotMood, PetExpressionId, PetSkin, Priority, Task } from "../types";
 import type { StateId } from "../lib/bloub/states";
 import type { TaskDraft } from "./AddDialog";
 import MascotAvatar from "./MascotAvatar";
@@ -44,6 +44,10 @@ interface MascotAssistantProps {
   onAddMemo: (text: string, tags?: string[]) => void;
   onOpenTask: (task: Task) => void;
   onDeleteTask: (task: Task) => void;
+  /** v3.9：对话直接完成/取消完成待办 */
+  onToggleTask: (task: Task) => void;
+  /** v3.9：对话直接更新待办（改时间/优先级） */
+  onUpdateTask: (task: Task, patch: { title?: string; dueDate?: string; dueTime?: string; priority?: Priority }) => void;
   /** v3.8 B：当前空间是否已授权吉祥物删待办 */
   deleteGranted: boolean;
   /** v3.8 B：把"删除授权"落库（localStorage，按空间） */
@@ -120,6 +124,8 @@ export default function MascotAssistant({
   onAddMemo,
   onOpenTask,
   onDeleteTask,
+  onToggleTask,
+  onUpdateTask,
   deleteGranted,
   onGrantDelete,
   nudges,
@@ -317,6 +323,24 @@ export default function MascotAssistant({
         if (t) onDeleteTask(t);
         setPendingDelete(null);
         triggerAct("done");
+        break;
+      }
+      case "completeTask": {
+        // v3.9：对话直接完成/取消完成
+        const t = tasks.find((x) => x.id === action.id);
+        if (t) {
+          if (t.completed !== action.done) onToggleTask(t);
+          triggerAct("done");
+        }
+        break;
+      }
+      case "updateTask": {
+        // v3.9：对话直接更新（改时间/优先级）
+        const t = tasks.find((x) => x.id === action.id);
+        if (t) {
+          onUpdateTask(t, action.patch);
+          triggerAct("done");
+        }
         break;
       }
     }

@@ -1344,6 +1344,8 @@ export default function App() {
           setSelectedId(task.id);
         }}
         onDeleteTask={deleteTask}
+        onToggleTask={(task) => toggleTask(task.id)}
+        onUpdateTask={(task, patch) => updateTask(task.id, patch)}
         deleteGranted={deleteGranted[mode]}
         onGrantDelete={() => grantDeleteToAssistant(mode)}
         nudges={mascotNudges}
