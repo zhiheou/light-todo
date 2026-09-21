@@ -24,6 +24,7 @@ import {
   type BrainCtx,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
+import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
 
 interface Msg {
   role: "user" | "bot";
@@ -127,7 +128,10 @@ export default function MascotAssistant({
   const [input, setInput] = useState("");
   const [mood, setMood] = useState<MascotMood>("idle");
   const [thinking, setThinking] = useState(false);
-  const [chat, setChat] = useState<Record<Mode, Msg[]>>({ work: [], personal: [] });
+  const [chat, setChat] = useState<Record<Mode, Msg[]>>(() => ({
+    work: loadChat("work") as Msg[],
+    personal: loadChat("personal") as Msg[],
+  }));
   const [pendingDelete, setPendingDelete] = useState<{ candidateId: string } | null>(null);
   /** v3.8 B：正在等用户"允许删除"授权（首次删待办）；记录了要删的那条 */
   const [awaitingGrant, setAwaitingGrant] = useState<{ candidateId: string } | null>(null);
@@ -196,6 +200,14 @@ export default function MascotAssistant({
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs.length, thinking, open]);
 
+  // v3.9 记忆本：聊天变化即存本机（按空间分仓），刷新/关页后不丢
+  useEffect(() => {
+    saveChat("work", chat.work);
+  }, [chat.work]);
+  useEffect(() => {
+    saveChat("personal", chat.personal);
+  }, [chat.personal]);
+
   /** 给当前空间推一条机器人消息；面板关闭时记未读 */
   function pushBot(text: string, silent = false) {
     setChat((prev) => ({
@@ -247,6 +259,7 @@ export default function MascotAssistant({
   /** v3.8 D：清空当前空间对话记录（含清掉待确认/授权状态） */
   function clearChat() {
     setChat((prev) => ({ ...prev, [mode]: [] }));
+    clearChatStorage(mode); // v3.9：一并清掉本机记忆
     setPendingDelete(null);
     setAwaitingGrant(null);
     setPendingFeeling(null);
