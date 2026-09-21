@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { Send, Trash2, X } from "lucide-react";
+import { Send, Settings2, Trash2, X } from "lucide-react";
 import type { Mode, MascotMood, PetExpressionId, PetSkin, Priority, Task } from "../types";
 import type { StateId } from "../lib/bloub/states";
 import type { TaskDraft } from "./AddDialog";
@@ -25,6 +25,15 @@ import {
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
+import {
+  ABILITIES,
+  isBlocked,
+  loadAbility,
+  loadConfirmAll,
+  saveAbility,
+  saveConfirmAll,
+  type AbilityLevel,
+} from "../lib/assistantAbility";
 
 interface Msg {
   role: "user" | "bot";
@@ -148,6 +157,11 @@ export default function MascotAssistant({
   const [unread, setUnread] = useState(0);
   /** 配置面板：形态/皮肤 */
   const [configOpen, setConfigOpen] = useState(false);
+  /** v3.9 助手能力档位（按空间，本机持久化） */
+  const [ability, setAbility] = useState<AbilityLevel>(() => loadAbility(mode));
+  const [confirmAll, setConfirmAll] = useState<boolean>(() => loadConfirmAll(mode));
+  /** 能力设置面板是否展开 */
+  const [abilityOpen, setAbilityOpen] = useState(false);
   /** 已保存提示 */
   const [savedHint, setSavedHint] = useState<string | null>(null);
   const savedTimer = useRef<number | null>(null);
@@ -275,6 +289,28 @@ export default function MascotAssistant({
 
   function runAction(action: BrainAction | undefined) {
     if (!action) return;
+    // v3.9 能力闸门：只读档禁止一切改动（直接拒绝，不执行）
+    const opOf = (t: BrainAction["type"]): "query" | "create" | "update" | "delete" | null => {
+      switch (t) {
+        case "addTask":
+        case "addMemo":
+          return "create";
+        case "completeTask":
+        case "updateTask":
+          return "update";
+        case "deleteTask":
+          return "delete";
+        default:
+          return null; // confirm/openTask/askRecordFeeling 等不算改动
+      }
+    };
+    const op = opOf(action.type);
+    if (op && op !== "query" && isBlocked(op, ability)) {
+      pushBot(
+        `我现在是「只读陪聊」模式，不能帮你改数据～如果想让我动手，在右上角 ⚙ 把能力调成「标准」或「全权」就行。`,
+      );
+      return;
+    }
     switch (action.type) {
       case "addTask": {
         const p = action.parsed;
@@ -306,7 +342,16 @@ export default function MascotAssistant({
         if (t) onOpenTask(t);
         break;
       }
-      case "confirm":
+      case "confirm": {
+        // v3.9 全权模式：直接执行删除，不再逐次确认（仍保留"首次授权"和撤销兜底）
+        if (ability === "full" && deleteGranted) {
+          const t = tasks.find((x) => x.id === action.candidateId);
+          if (t) {
+            onDeleteTask(t);
+            triggerAct("done");
+          }
+          break;
+        }
         // v3.8 B：第一次删待办需先授权（按空间记住）。未授权 → 不进入删除确认，
         // 先请求授权；授权后再走正常"确认删这条"。
         if (!deleteGranted) {
@@ -318,6 +363,7 @@ export default function MascotAssistant({
         setPendingDelete({ candidateId: action.candidateId });
         setMood("listening");
         break;
+      }
       case "deleteTask": {
         const t = tasks.find((x) => x.id === action.id);
         if (t) onDeleteTask(t);
@@ -631,10 +677,56 @@ export default function MascotAssistant({
                 <Trash2 size={16} />
               </button>
             )}
+            <button
+              type="button"
+              className={abilityOpen ? "icon-button active" : "icon-button"}
+              aria-label="助手能力设置"
+              title="助手能力"
+              onClick={() => setAbilityOpen((v) => !v)}
+            >
+              <Settings2 size={16} />
+            </button>
             <button type="button" className="icon-button" aria-label="关闭" onClick={closePanel}>
               <X size={16} />
             </button>
           </div>
+
+          {/* v3.9 助手能力设置：3 档 + 全部都确认开关 */}
+          {abilityOpen && (
+            <div className="ability-panel">
+              <div className="ability-title">助手能力</div>
+              <div className="ability-sub">决定{persona.name}能帮你做多少事（按空间各自记忆）</div>
+              {ABILITIES.map((a) => (
+                <button
+                  key={a.key}
+                  type="button"
+                  className={ability === a.key ? "ability-card active" : "ability-card"}
+                  onClick={() => {
+                    setAbility(a.key);
+                    saveAbility(mode, a.key);
+                    showSaved(`已切换 · ${a.name}`);
+                  }}
+                >
+                  <b>{a.name}</b>
+                  <span>{a.desc}</span>
+                </button>
+              ))}
+              <label className="ability-toggle">
+                <input
+                  type="checkbox"
+                  checked={confirmAll}
+                  onChange={(e) => {
+                    setConfirmAll(e.target.checked);
+                    saveConfirmAll(mode, e.target.checked);
+                  }}
+                />
+                所有操作都先问我确认（谨慎模式）
+              </label>
+              <div className="ability-current">
+                当前：{ABILITIES.find((x) => x.key === ability)?.example}
+              </div>
+            </div>
+          )}
 
           <div className="mascot-msgs" ref={listRef}>
             {msgs.length === 0 && (

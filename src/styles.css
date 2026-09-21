@@ -4129,3 +4129,52 @@ html[data-card-style="colorful"] .priority.p4 {
   .onboard-overlay, .onboard-card { animation: none; }
 }
 
+
+/* v3.9 助手能力设置面板（对话头部 ⚙ 展开） */
+.ability-panel {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2, #f6f8fa);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: onboard-fade 0.15s ease;
+}
+.ability-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.ability-sub { font-size: 11px; color: var(--muted); margin-top: -4px; }
+.ability-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.ability-card:hover { border-color: #b9c4cf; }
+.ability-card.active {
+  border-color: var(--teal);
+  background: var(--teal-soft, rgba(15, 118, 110, 0.1));
+}
+.ability-card b { font-size: 13px; color: var(--text); }
+.ability-card span { font-size: 11px; color: var(--muted); line-height: 1.5; }
+.ability-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-2, #45505c);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.ability-toggle input { accent-color: var(--teal); }
+.ability-current {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  border-top: 1px dashed var(--border);
+  padding-top: 7px;
+}
