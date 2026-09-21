@@ -799,59 +799,55 @@ export default function App() {
   );
 
   // v3.9.2 perf：刷新恢复会话（同会话内已完整校验过）→ 只用缓存密钥解密出首屏，
-  // 不跑 PBKDF2；服务端数据在后台解密核对，不一致才覆盖。完整校验仍由 30s 轮询兜底。
+  // 不跑 PBKDF2、不发多余的 /api/login（cookie 已能鉴权，keySalt 本地已存），
+  // 服务端数据在后台解密核对，不一致才覆盖。完整校验仍由 30s 轮询兜底。
   const handleSessionRestore = useCallback(
     async (stored: { username: string; password: string; keySalt: string }) => {
       const restoreStarted = Date.now();
-      const login = await loginAccount(stored.username, stored.password);
       const workspace = await fetchWorkspace();
+      if (!workspace) throw new Error("无法读取工作区");
       // 缓存命中（同一浏览器会话内刚完整校验过）→ 不走 PBKDF2，直接解密出首屏
-      let data = workspace?.data && workspace.iv
+      let data = workspace.data && workspace.iv
         ? await decryptAppDataFast(
             { iv: workspace.iv, data: workspace.data },
             stored.password,
-            login.keySalt,
+            stored.keySalt,
           )
         : null;
       // 密钥不在缓存里（如新标签页重开且已过后台校验）→ 回退完整 PBKDF2 解密
-      if (!data && workspace?.data && workspace.iv) {
+      if (!data && workspace.data && workspace.iv) {
         data = await decryptAppData(
           { iv: workspace.iv, data: workspace.data },
           stored.password,
-          login.keySalt,
+          stored.keySalt,
         );
+      }
+      if (!data && workspace.data) {
+        // 有密文却解不开：密钥/会话已失效，交回完整登录流程去校验
+        throw new Error("会话已失效");
       }
       resetAllLocalData();
       if (data) {
         applyAppData(data);
-      } else if (!workspace?.data) {
-        // 空账号：与 handleLogin 一致，用全新 seed 初始化并上传
+      } else {
+        // 空账号（罕见：老空号）→ 用全新 seed。
+        // 注意：这里只铺 state、不上传，避免与服务端并发写入打架；
+        // 数据一旦有变，自动保存 effect（800ms 防抖）会负责上传。
         const now = new Date();
-        const fresh: AppData = {
-          workTasks: seedTasks("work", now),
-          workMemos: seedMemos("work"),
-          personalTasks: [],
-          personalMemos: [],
-          workDimensions: [],
-          workGoals: [],
-          personalDimensions: [],
-          personalGoals: [],
-          updatedAt: Date.now(),
-        };
-        setWorkTasks(fresh.workTasks);
-        setWorkMemos(fresh.workMemos);
-        const payload = await encryptAppData(fresh, stored.password, login.keySalt);
-        await saveWorkspace(payload);
+        setWorkTasks(seedTasks("work", now));
+        setWorkMemos(seedMemos("work"));
       }
+      saveStoredSession({ username: stored.username, password: stored.password, keySalt: stored.keySalt });
       setAccount({ username: stored.username });
-      setAccountKeySalt(login.keySalt);
+      setAccountKeySalt(stored.keySalt);
       setAccountPassword(stored.password);
       setAccountReady(true);
       setAuthState("in");
       setView("today");
       markSessionRevalidated(stored.username);
-      // 后台完整校验：跑一遍 PBKDF2（真密钥校验）+ 解密最新密文；
-      // 期间用户没编辑（lastLocalEdit 早于恢复开始）且数据有差异才覆盖，防抖掉用户刚做的修改
+      // 后台核对：再拉一次最新密文并解密，抓取「上次保存之后服务端又变了」的情况
+      // （多端同步的兜底；30s 轮询随后接管）。密钥正确性已由首屏 AES-GCM 认证证明，
+      // 这里不再重复跑 PBKDF2。期间用户没编辑（lastLocalEdit 早于恢复开始）才允许覆盖。
       void (async () => {
         try {
           const latest = await fetchWorkspace();
@@ -859,7 +855,7 @@ export default function App() {
           const fresh = await decryptAppData(
             { iv: latest.iv, data: latest.data },
             stored.password,
-            login.keySalt,
+            stored.keySalt,
           );
           if (fresh && lastLocalEdit.current < restoreStarted) applyAppData(fresh);
         } catch {
