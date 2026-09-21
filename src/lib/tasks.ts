@@ -53,19 +53,28 @@ export function seedTasks(mode: Mode, now: Date): Task[] {
   ];
 }
 
-export function loadTasks(mode: Mode, now = new Date()): Task[] {
+/**
+ * 读取本机任务。
+ *
+ * ⚠️ v3.9.2 关键修复：**不再自动 seed**。
+ * 原因：App 挂载（还没登录）时若自动写入引导任务，用户随后登录已有账号 →
+ * 800ms 自动保存会把这几条"本机种子"推到云端，**污染账号数据**。
+ * 新用户引导任务改由「注册时」显式生成（见 App.handleRegister）。
+ * 本机无数据时返回空数组即可（登录页会挡住，用户看不到）。
+ */
+export function loadTasks(mode: Mode, _now = new Date()): Task[] {
   let raw: string | null = null;
-  try { raw = localStorage.getItem(keyFor(mode)); } catch { return seedTasks(mode, now); }
-  if (!raw) {
-    const tasks = seedTasks(mode, now);
-    saveTasks(mode, tasks);
-    return tasks;
+  try {
+    raw = localStorage.getItem(keyFor(mode));
+  } catch {
+    return []; // 存储被禁用 → 空数组（不崩）
   }
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as Task[];
     return normalizeTasks(parsed);
   } catch {
-    return seedTasks(mode, now);
+    return [];
   }
 }
 

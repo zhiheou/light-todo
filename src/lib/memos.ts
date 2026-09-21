@@ -58,13 +58,18 @@ export function seedMemos(mode: Mode): Memo[] {
   ];
 }
 
+/**
+ * 读取本机工作备忘。
+ * ⚠️ v3.9.2：不再自动 seed（同 loadTasks）——挂载时写入会污染登录后的账号数据。
+ */
 export function loadWorkMemos(): Memo[] {
-  const raw = localStorage.getItem(WORK_KEY);
-  if (!raw) {
-    const memos = seedMemos("work");
-    saveWorkMemos(memos);
-    return memos;
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(WORK_KEY);
+  } catch {
+    return [];
   }
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw) as Memo[];
     return normalizeMemos(parsed);
