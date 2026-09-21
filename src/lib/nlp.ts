@@ -131,6 +131,13 @@ const STRIP_RULES: RegExp[] = [
 function stripTokens(title: string): string {
   let clean = title;
   for (const rule of STRIP_RULES) clean = clean.replace(rule, " ");
+  // "记得/别忘了/记住" 开头：整体去掉（须先于"建待办外壳"，否则只剥到"记"剩个"得"）
+  clean = clean.replace(/^\s*(?:记得|别忘了|记住|记着)\s*[，,：:、]?\s*/, "");
+  // 前置"建待办"外壳：帮我记个待办：/记一下/添加个任务… → 去掉（避免"记个待办： 开会"残留）
+  clean = clean.replace(
+    /^\s*(?:请|麻烦|你|好呀|好的|可以)?\s*(?:帮我|给我|替我)?\s*(?:记|建|添加|加|设|安排|存|放)(?:个|一个|一下)?\s*(?:待办|任务|事项|备忘录|提醒)?\s*(?:里|中|上面)?\s*[，,：:、]?\s*/,
+    "",
+  );
   // 前置语气词（token 剥离后可能残留空格）："提醒我打卡" → "打卡"
   clean = clean.replace(/^\s*(请|麻烦|帮我|记得|提醒|我|你|一下)+\s*/g, " ");
   clean = clean

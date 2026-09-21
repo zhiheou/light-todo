@@ -173,7 +173,7 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
 
 /** 判断文本是否"建备忘录" */
 /** 心情词库：情绪宣泄类句子（"好烦/累死了/好开心…"）——先共情，再询问是否记成 #心情 */
-const FEELING_WORDS = /(好烦|烦死|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服)/;
+const FEELING_WORDS = /(好烦|烦死|心烦|心累|好累|累死|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|崩溃了|好气|气死|生气|暴躁|烦躁|郁闷|不开心|心情.{0,2}不好|心情.{0,2}差|心情.{0,2}糟|有点烦|emo|抑郁|孤独|失眠|撑不住|撑不下去|开心|高兴|好棒|好开心|太棒|幸福|满足|轻松|畅快|舒服)/;
 const NEG_FEELING = /(烦|累|压力|焦虑|难过|委屈|伤心|沮丧|低落|崩溃|气|暴躁|烦躁|郁闷|不开心|emo|抑郁|孤独|失眠|撑不住|撑不下去)/;
 function tryFeeling(raw: string): BrainReply | null {
   if (!FEELING_WORDS.test(raw)) return null;
@@ -321,9 +321,8 @@ export function needDeleteGrantReply(): BrainReply {
 
 /** 判断用户这句话是不是"允许/同意 AI 删待办"的授权意图 */
 export function isGrantDeleteIntent(raw: string): boolean {
-  return /^(我)?(允许|同意|授权|准了|可以|好|好的|行|ok|嗯|对)(你)?(帮我)?(删|删除|删待办|删任务)/.test(
-    raw.trim(),
-  );
+  // 容忍语气词/标点/插入词："好，我允许你删" / "行吧 授权你删除待办"
+  return /(允许|同意|授权|准了|准许)[^。！？!?]{0,6}(删|删除|删待办|删任务)/.test(raw.trim());
 }
 
 /** 判断用户回复是否是针对待确认删除的"是/否"，返回确认方向或 null */
@@ -351,6 +350,15 @@ const OFF_TOPIC = [
 ];
 const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
 
+/** 正则型离题：推荐/查询类（措辞多变，用模式而非固定词） */
+const OFF_TOPIC_PATTERNS = [
+  /推荐.{0,4}(电影|剧|书|音乐|歌|游戏|餐厅|地方|景点|动漫)/,
+  /(天气|气温|下雨|温度).{0,3}(怎么样|如何|如何样|预报)?/,
+  /(讲|说).{0,3}(个)?(笑话|故事|段子)/,
+  /(翻译|解释|总结|润色|改写).{0,4}(一下|这段|这句|下)/,
+  /(算|解).{0,2}(一下|个)?(方程|数学|题)/,
+];
+
 // 编程语言/技术名词单独放（不能无条件拦截——"和后端开会"是合法待办）。
 // 只在"出现 写/做/实现/教/生成 这类动作意图"时才判离题。
 const CODE_NOUN_RE = /(c\+\+|c#|c语言|rust|go语言|前端|后端|数据库|接口|算法|链表|数组|函数|变量|爬虫|脚本|代码|程序|网站)/i;
@@ -360,6 +368,7 @@ const BUILD_VERB_RE = /(写|做|实现|编|教|生成|给我写|帮我写|搞个
 export function isOffTopic(raw: string): boolean {
   const t = raw.trim();
   if (OFF_TOPIC_RE.test(t)) return true;
+  if (OFF_TOPIC_PATTERNS.some((re) => re.test(t))) return true;
   // 明确"动手做技术活"（写代码/做网站/教编程）→ 拒绝进 AI；但有时间/待办语义的"和后端开会"不误伤
   const hasTime = /(明天|今天|后天|周[一二三四五六日天]|\d{1,2}月|\d{1,2}日|上午|下午|晚上|今晚|\d+点|\d+:\d+|号)/.test(t);
   const hasTodoWord = /(待办|任务|开会|会议|约|安排|提醒|行程|备忘|去|到|看|交|汇报|面试|出差)/.test(t);

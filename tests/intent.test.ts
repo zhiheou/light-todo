@@ -1,0 +1,116 @@
+import { describe, it, expect } from "vitest";
+import { answer, isOffTopic, isGrantDeleteIntent } from "../src/lib/mascotBrain";
+
+/**
+ * 轻宜「考试系统」· 第 2 科：意图分类 + 越界拒绝
+ *
+ * 方法（照 XSTest 双边测试思路）：
+ *  - 该答的不能拒（正例）
+ *  - 该拒的必须拒（越界：写代码/翻译/数学…）
+ * 两类都测，防"只测一边"。
+ * 冻结参考时间：2026-09-04 10:00
+ */
+const NOW = new Date(2026, 8, 4, 10, 0);
+const ctx = (tasks: any[] = []) => ({ tasks, persona: "work" as const, now: NOW });
+
+describe("意图：建待办（应当建成任务）", () => {
+  const shouldBuild = [
+    "明天下午4点开会",
+    "帮我记个待办：明天10点交周报",
+    "下周二前给个方案",
+    "每天8点半提醒我喝水",
+    "记得买牛奶",
+  ];
+  for (const input of shouldBuild) {
+    it(`"${input}" → 应识别为建任务(addTask)`, () => {
+      const r = answer(input, ctx());
+      expect(r.action?.type).toBe("addTask");
+    });
+  }
+});
+
+describe("意图：记备忘（应当存备忘）", () => {
+  const shouldMemo = [
+    "记到备忘录：客户电话是13800000000",
+    "把这段记到备忘录：下季度OKR初稿思路",
+  ];
+  for (const input of shouldMemo) {
+    it(`"${input}" → 应识别为记备忘(addMemo)`, () => {
+      const r = answer(input, ctx());
+      expect(r.action?.type).toBe("addMemo");
+    });
+  }
+});
+
+describe("意图：查询（应当查而不建）", () => {
+  const shouldQuery = ["今天有什么安排", "明天有什么安排", "有什么逾期的吗"];
+  for (const input of shouldQuery) {
+    it(`"${input}" → 不应建任务`, () => {
+      const r = answer(input, ctx([{ id: "1", title: "开会", notes: "", priority: 3, dueDate: "2026-09-04", dueTime: "", remindAt: "", completed: false, createdAt: 0, updatedAt: 0 }]));
+      expect(r.action).toBeUndefined();
+      expect(r.text.length).toBeGreaterThan(0);
+    });
+  }
+});
+
+describe("意图：情绪（应当共情，不建任务）", () => {
+  const feelings = ["今天心情很不好", "好烦啊", "最近压力好大"];
+  for (const input of feelings) {
+    it(`"${input}" → 应走情绪分支(askRecordFeeling)，不直接建任务`, () => {
+      const r = answer(input, ctx());
+      expect(r.action?.type).toBe("askRecordFeeling");
+    });
+  }
+});
+
+describe("意图：空内容引导（不该建出无意义任务）", () => {
+  const empties = ["给我记个待办", "帮我记个待办", "记一下"];
+  for (const input of empties) {
+    it(`"${input}" → 应引导补内容，不建任务`, () => {
+      const r = answer(input, ctx());
+      expect(r.action).toBeUndefined();
+    });
+  }
+});
+
+describe("越界拒绝（该拒的必须拒，不耗 AI）", () => {
+  const offTopic = [
+    "帮我写一个python爬虫",
+    "用c++写个链表",
+    "帮我翻译这段话",
+    "帮我解个方程",
+    "帮我写篇作文",
+    "推荐几部电影",
+    "今天天气怎么样",
+  ];
+  for (const input of offTopic) {
+    it(`"${input}" → 判为离题`, () => {
+      expect(isOffTopic(input)).toBe(true);
+    });
+  }
+});
+
+describe("不该误拦（合法待办不能被当越界拒掉）", () => {
+  const legit = [
+    "明天和后端对接口的会议",
+    "帮我记个待办：明天下午4点开会",
+    "今天有什么安排",
+    "下周二前给个方案",
+  ];
+  for (const input of legit) {
+    it(`"${input}" → 不该判离题`, () => {
+      expect(isOffTopic(input)).toBe(false);
+    });
+  }
+});
+
+describe("危险操作闸门：删除授权意图识别", () => {
+  it("「允许删除」→ 识别为授权", () => {
+    expect(isGrantDeleteIntent("允许删除")).toBe(true);
+    expect(isGrantDeleteIntent("好，我允许你删")).toBe(true);
+  });
+  it("普通闲聊不该被当授权", () => {
+    expect(isGrantDeleteIntent("今天天气不错")).toBe(false);
+    expect(isGrantDeleteIntent("帮我建个待办")).toBe(false);
+  });
+});
