@@ -55,11 +55,6 @@ export function reportLoginState(loggedIn: boolean): void {
   window.setTimeout(send, 1500);
 }
 
-/** 登录完成后收起主窗口（只留桌宠）——仅桌面版有主窗口 */
-export function collapseMainWindow(): void {
-  petAPI()?.closeMainWindow();
-}
-
 /**
  * 上报"可交互区域"（宠物本体 + 打开的聊天面板），让主进程精确判定鼠标命中。
  *

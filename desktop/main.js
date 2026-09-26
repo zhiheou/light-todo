@@ -2,17 +2,22 @@ const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage } = require
 const path = require("path");
 
 /**
- * 轻待办 桌面版主进程（v3.9.4）
+ * 轻待办 桌面版主进程（v3.9.5）
  *
- * 双窗口设计（用户要求）：
- *  - 桌宠窗口：透明、无边框、置顶、鼠标穿透，常驻桌面 —— **默认只显示它**
- *  - 主窗口：正常待办界面（和网页一样），**登录完成后自动收起**，托盘随时找回
+ * 双窗口设计：
+ *  - 桌宠窗口：**铺满整块屏幕**的透明窗（置顶 + 鼠标穿透），宠物因此能在**整个桌面**上活动。
+ *  - 主窗口：完整的网页版界面（和浏览器里一模一样），登录后**保持打开**；
+ *    可手动关闭（关了不影响桌宠），托盘随时叫回来。
+ *    带 `?pet=off` —— 宠物只在全屏窗里渲染一份，避免两处坐标基准不同导致位置对不上。
  *  - 托盘图标：随时开主窗口 / 退出
  *
- * v3.9.4 尺寸自适应：
- *  - 窗口尺寸不再写死 140px；由页面算好（按屏幕宽度 9%，夹在 [64,104]）通过 pet-set-size 报上来
- *  - 屏幕分辨率/缩放变化 → 广播 pet-display，页面重算 → 窗口跟着变
- *  - 桌宠窗口定位按**当前鼠标所在显示器**的工作区算，多显示器各自正确
+ * v3.9.5 为什么把桌宠窗改成全屏（用户反馈原文："宠物为什么只能在右下角移动，
+ * 而不是整个桌面都可以动"）：此前窗口 = 宠物 + 留白的小方块，宠物被限制在那一小块里。
+ * 改成全屏后，窗口坐标 == 屏幕坐标，拖拽/甩飞的物理逻辑可直接复用，
+ * 也省掉了"跨窗口同步位置"这类容易出 bug 的设计。
+ *
+ * 尺寸自适应：宠物渲染尺寸 = 屏幕宽 ÷ 15，夹 [88,128]，再乘用户选的 s/m/l 比例。
+ * 窗口本身固定铺满，不随宠物大小变化。
  *
  * 关键坑（别踩）：
  *  - 透明窗口在部分 Windows 显卡驱动下会黑底 → disableHardwareAcceleration
@@ -25,37 +30,15 @@ const path = require("path");
 app.disableHardwareAcceleration(); // 防透明窗口黑底
 app.commandLine.appendSwitch("enable-transparent-visuals");
 
-/** 宠物窗口默认尺寸（页面还没报真实尺寸前的兜底；中等屏是 104） */
-const PET_FALLBACK = 104;
 const APP_URL = process.env.LIGHT_TODO_URL || "https://todo.aebuiyke.xyz";
-/** 宠物窗口比宠物本体大一圈，给聊天气泡/灵动小字留位置 */
-const PET_PADDING = 56;
-/** 桌宠离屏幕边缘的间距 */
-const PET_MARGIN = 24;
-/**
- * 聊天面板打开时的窗口尺寸。
- * 桌面版网页里的聊天面板固定宽 340px（见 styles.css 的 .mascot-panel），
- * 窗口只有"宠物 + 留白"那么点时面板会被裁掉一半 —— 聊天就用不了了。
- * 所以打开面板时把窗口临时放大到装得下：左右各留 12px 边距 + 面板 + 宠物。
- */
-const CHAT_PANEL_W = 340;
-const CHAT_MARGIN = 12;
-/** 窗口高度：面板最高 460 + 宠物 + 边距 */
-const CHAT_WINDOW_H = 460 + PET_PADDING + CHAT_MARGIN * 2;
 
 let petWin = null;
 let mainWin = null;
 let tray = null;
 /** 真正退出（区分"关窗口"和"退出应用"） */
 let quitting = false;
-/** 页面算好的宠物边长（CSS 像素），窗口 = 它 + PET_PADDING */
-let petSize = PET_FALLBACK;
-/** 窗口是否已按页面报来的尺寸定过位（首次必须应用，不能用"值没变"跳过） */
-let petSizeApplied = false;
 /** 是否已确认登录（用于忽略重复上报，见 login-state 处理器） */
 let hasLoggedIn = false;
-/** 聊天面板是否打开（打开时窗口临时放大，否则 340px 的面板会被裁掉一半） */
-let chatOpen = false;
 
 // 屏幕参数注入：用 executeJavaScript 直接写进页面的 window。
 //
@@ -101,33 +84,21 @@ function displayMetrics(display) {
 /**
  * 桌宠窗口几何。
  *
- * 平时：窗口 = 宠物 + 留白，贴工作区右下角（不挡路）。
- * 聊天时：临时放大到装得下 340px 的聊天面板（否则面板被裁掉一半、聊天没法用），
- *        仍保持右下角贴边，所以视觉上宠物不会跳走。
+ * v3.9.5 改：窗口铺满**整块屏幕**（透明 + 鼠标穿透），宠物才能在整个桌面上跑 ——
+ * 之前是"宠物 + 留白"的小窗口，宠物只能在那一小块里挪，用户明确反馈"不能整个桌面动"。
+ * 因为窗口就是全屏，窗口坐标 == 屏幕坐标，拖拽/甩飞的物理逻辑可以直接复用，
+ * 也不用做跨窗口位置同步（那种同步很容易出 bug）。
  *
- * 全部用 CSS 像素（Electron 的 workArea 已是 CSS 像素），自己再乘 scaleFactor 会跑偏。
+ * 用 bounds 而非 workArea：全屏要盖住任务栏那一条，否则宠物跑到底部会掉进任务栏后面。
  */
 function petWindowGeometry(display) {
   const d = display || screen.getPrimaryDisplay();
-  const wa = d.workArea;
-  const base = Math.round(petSize + PET_PADDING);
-  if (!chatOpen) {
-    return {
-      width: base,
-      height: base,
-      x: Math.round(wa.x + wa.width - base - PET_MARGIN),
-      y: Math.round(wa.y + wa.height - base - PET_MARGIN),
-    };
-  }
-  // 聊天模式：宽度以面板为准（面板在宠物左侧时也一样，窗口够宽即可），
-  // 但不超过工作区，避免小屏上窗口比屏幕还宽
-  const w = Math.min(wa.width, CHAT_PANEL_W + base);
-  const h = Math.min(wa.height, CHAT_WINDOW_H);
+  const b = d.bounds;
   return {
-    width: w,
-    height: h,
-    x: Math.round(wa.x + wa.width - w - CHAT_MARGIN),
-    y: Math.round(wa.y + wa.height - h - CHAT_MARGIN),
+    width: Math.round(b.width),
+    height: Math.round(b.height),
+    x: Math.round(b.x),
+    y: Math.round(b.y),
   };
 }
 
@@ -169,11 +140,12 @@ function createPetWindow() {
     petWin.webContents
       .executeJavaScript(
         `document.documentElement.classList.add('desktop-pet-mode');
-         document.documentElement.style.background='transparent';
-         document.body.style.background='transparent';`,
+         document.body.style.background='transparent';
+         // 标记"全屏桌宠窗"：页面据此知道屏幕坐标 == 窗口坐标（拖拽/甩飞可直接复用）
+         window.petFullscreen = true;`,
       )
       .catch(() => {});
-    // 注入屏幕参数：页面据此算自适应尺寸（窗口只有 160px，不能拿窗口宽度当屏幕宽度）
+    // 注入屏幕参数：页面据此算自适应尺寸（窗口是全屏，但仍以 workArea 为准算宠物大小）
     injectDisplayMetrics(petWin);
   });
 
@@ -185,13 +157,34 @@ function createPetWindow() {
   startPetHoverWatch();
 }
 
-/** 页面报来尺寸 / 屏幕变化后：重算窗口矩形并贴回工作区右下角 */
-function applyPetSize() {
+/** 主窗口（普通窗口）要带上 ?pet=off：桌面版里只让全屏桌宠窗渲染宠物，避免墙纸/坐标错位 */
+function mainWindowUrl() {
+  return `${APP_URL}${APP_URL.includes("?") ? "&" : "?"}pet=off`;
+}
+
+/**
+ * 屏幕变化（换显示器/改分辨率/改缩放）后重新铺满。
+ *
+ * 注意：不再由 `pet-set-size` 触发 —— 窗口自 v3.9.5 起是固定的"铺满整屏"，
+ * 宠物大小只影响页面内的渲染尺寸，**不需要 resize 窗口**。
+ * （早期版本窗口 = 宠物 + 留白，所以页面报尺寸时要跟着 resize；
+ *   现在若还那样做，每次页面重算尺寸都会 setBounds 一整屏，造成无谓的重排。）
+ */
+function applyPetGeometry() {
   if (!petWin || petWin.isDestroyed()) return;
   const display = displayForPet();
   const geo = petWindowGeometry(display);
+  const cur = petWin.getBounds();
+  // 已经铺满就不动（避免抖动）
+  if (
+    cur.x === geo.x &&
+    cur.y === geo.y &&
+    cur.width === geo.width &&
+    cur.height === geo.height
+  ) {
+    return;
+  }
   petWin.setBounds({ x: geo.x, y: geo.y, width: geo.width, height: geo.height });
-  petSizeApplied = true;
   injectDisplayMetrics(petWin);
 }
 
@@ -216,7 +209,7 @@ function createMainWindow() {
     },
   });
   mainWin.setMenuBarVisibility(false);
-  mainWin.loadURL(APP_URL);
+  mainWin.loadURL(mainWindowUrl());
 
   // 关主窗口 = 只隐藏（桌宠继续在）
   mainWin.on("close", (e) => {
@@ -228,11 +221,6 @@ function createMainWindow() {
   mainWin.on("closed", () => {
     mainWin = null;
   });
-}
-
-/** 收起主窗口（登录成功后调：用户要"登录完只剩桌宠"） */
-function hideMainWindow() {
-  if (mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) mainWin.hide();
 }
 
 // ---------- 托盘（关窗口后还能找回） ----------
@@ -262,8 +250,12 @@ function createTray() {
 // 为什么用轮询：Electron 透明窗 + setIgnoreMouseEvents(forward) 时，页面**收不到**
 // mousemove（事件在浏览器内部链被截断），所以"页面监听 pointermove 再解除穿透"是死循环。
 // 主进程能拿到全局鼠标坐标（screen.getCursorScreenPoint），用它判定最可靠。
+//
+// v3.9.5：窗口改成**铺满整屏**后，命中判定不能再用"整个窗口"兜底 ——
+// 那会让整块屏幕都抢鼠标、什么都点不中。所以必须由页面上报宠物的真实矩形，
+// 没收到上报之前一律保持穿透（安全默认）。
 let hoverTimer = null;
-/** 宠物实际占用的区域（相对窗口），由页面通过 pet-hitbox 上报（默认整个窗口） */
+/** 宠物实际占用的区域（相对窗口 CSS 像素），由页面通过 pet-hitbox 上报 */
 let petHitbox = null;
 
 function startPetHoverWatch() {
@@ -275,13 +267,12 @@ function startPetHoverWatch() {
     const scale = display.scaleFactor || 1;
     const { x: mx, y: my } = screen.getCursorScreenPoint(); // 物理像素
     const [wx, wy] = petWin.getPosition(); // DIP（CSS 像素）
-    const [ww, wh] = petWin.getSize(); // DIP
     // 换算到窗口坐标系：高分屏下不除 scale，命中区域会整体偏掉
     const rx = mx / scale - wx;
     const ry = my / scale - wy;
-    // 命中判定：有 hitbox 用 hitbox，否则整个窗口
-    const hb = petHitbox || { x: 0, y: 0, w: ww, h: wh };
-    const inside = rx >= hb.x && rx <= hb.x + hb.w && ry >= hb.y && ry <= hb.y + hb.h;
+    // 命中判定：只认页面上报的矩形；没上报 → 不接管（全屏窗口绝不能兜底成全屏可点）
+    const hb = petHitbox;
+    const inside = !!hb && rx >= hb.x && rx <= hb.x + hb.w && ry >= hb.y && ry <= hb.y + hb.h;
     if (inside && ignoring) {
       ignoring = false;
       petWin.setIgnoreMouseEvents(false);
@@ -311,25 +302,27 @@ ipcMain.on("pet-move", (_e, { dx, dy }) => {
   const [x, y] = petWin.getPosition();
   petWin.setPosition(Math.round(x + dx), Math.round(y + dy));
 });
-/** v3.9.4 尺寸自适应：页面算好尺寸报上来，窗口跟着变 */
-ipcMain.on("pet-set-size", (_e, px) => {
-  if (typeof px !== "number" || !isFinite(px) || px <= 0) return;
-  const clamped = Math.max(40, Math.min(220, Math.round(px)));
-  // 首次必须应用（初值是 PET_FALLBACK，若页面恰好算出同值会被"没变就跳过"漏掉定位）；
-  // 之后仅在真的变了才 resize，避免每次渲染抖动
-  if (clamped === petSize && petSizeApplied) return;
-  petSize = clamped;
-  applyPetSize();
+/**
+ * v3.9.5：宠物大小完全由页面决定（屏幕宽÷15 夹 [88,128] × s/m/l 比例）。
+ * 窗口固定铺满整屏，所以主进程**不需要**跟着 resize —— 这两个通道保留只为兼容旧页面调用。
+ */
+ipcMain.on("pet-set-size", () => {
+  /* 窗口已是全屏，尺寸只影响页面内渲染，无需处理 */
 });
-/** 聊天面板开关：打开时窗口要放大，否则 340px 面板被裁掉 */
-ipcMain.on("pet-chat-open", (_e, open) => {
-  const next = !!open;
-  if (next === chatOpen) return;
-  chatOpen = next;
-  applyPetSize();
+ipcMain.on("pet-chat-open", () => {
+  /* 窗口已是全屏，面板本来就装得下，无需 resize */
 });
-/** 登录完成后收起主窗口，只留桌宠 */
-ipcMain.on("close-main-window", () => hideMainWindow());
+/**
+ * v3.9.5：登录完成后**不再收起主窗口**。
+ *
+ * 用户反馈（2026-09-26）原话："登录之后为什么没有网页版的那种页面展示……网页版的功能不能丢呀"
+ * 之前做成"登录完只留桌宠、大窗口自动藏起来"，是把"桌宠自动出现"理解成了"替掉主界面"。
+ * 正确行为：**主窗口（完整网页版界面）和桌宠同时存在**。
+ * 主窗口仍然可以手动关掉——关了不影响桌宠，托盘随时能叫回来。
+ */
+ipcMain.on("close-main-window", () => {
+  /* 保留通道（老版本页面可能仍会调用），但不再收起窗口 */
+});
 ipcMain.on("open-main-window", () => createMainWindow());
 
 // 页面回报登录态：决定"直接显示桌宠"还是"先开主窗口登录"
@@ -380,9 +373,9 @@ app.whenReady().then(() => {
   createPetWindow(); // 桌宠先起来（页面报登录态后再决定显示/弹登录窗）
   createTray();
   // 屏幕变化（插拔显示器 / 改分辨率 / 改缩放）→ 重新定位并让页面重算尺寸
-  screen.on("display-metrics-changed", () => applyPetSize());
-  screen.on("display-added", () => applyPetSize());
-  screen.on("display-removed", () => applyPetSize());
+  screen.on("display-metrics-changed", () => applyPetGeometry());
+  screen.on("display-added", () => applyPetGeometry());
+  screen.on("display-removed", () => applyPetGeometry());
 });
 
 // 关掉所有窗口也不退出（桌宠常驻 + 托盘在）——用户要"关网页桌宠还在"

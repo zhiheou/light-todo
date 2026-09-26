@@ -81,6 +81,14 @@ export function responsivePx(size: "s" | "m" | "l"): number {
   return calcPetPx(size, getDisplayMetrics().width);
 }
 
+/**
+ * 是否运行在桌面版的"全屏透明桌宠窗口"里。
+ * 该模式特征：窗口铺满整块屏幕，所以屏幕坐标 == 窗口坐标（拖拽/甩飞物理可直接复用）。
+ */
+export function isFullscreenPetWindow(): boolean {
+  return !!(window as unknown as { petFullscreen?: boolean }).petFullscreen;
+}
+
 export default function PetShell({
   mode,
   skin,
@@ -127,6 +135,11 @@ export default function PetShell({
   const trail = useRef<TrailSample[]>([]);
   /** 是否正在物理飞行 */
   const flying = useRef(false);
+  /**
+   * v3.9.5 桌面版全屏模式：桌宠窗口铺满整块屏幕，坐标原点在屏幕左上角。
+   * 因为窗口本身就是全屏的，窗口坐标 == 屏幕坐标，拖拽/甩飞物理无需任何转换。
+   */
+  const fullscreen = isFullscreenPetWindow();
   /** 本段飞行起始时间（看门狗用：超时强制落定，杜绝"永远飞/卡死"） */
   const flightStart = useRef(0);
   /** 看门狗：飞行超过该毫秒数仍未 settle → 强制停下（正常甩飞 2-3s 内必停） */
@@ -497,6 +510,10 @@ export default function PetShell({
     style = { left: dock.x, top: dock.y };
   } else if (position === "bottom") {
     style = { left: "50%", transform: "translateX(-50%)", bottom: 76 };
+  } else if (fullscreen) {
+    // 全屏桌宠窗（桌面版）：窗口就是整块屏幕，没有"上一级容器"可贴，
+    // 默认落在屏幕右下角（与用户此前的观感一致）；用户一拖就落到拖到的位置。
+    style = { right: 24, bottom: 24 };
   } else {
     style = { right: 18, bottom: 18 };
   }
