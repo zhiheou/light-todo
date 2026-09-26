@@ -336,12 +336,38 @@ let ignoreState = true;
 /** 钉住的兜底看门狗：超时未解锁则自动释放（防鼠标接管被永久钉死） */
 let lockWatchdog = null;
 
+/**
+ * v3.9.13 🔴 鼠标按键"按住期间"强制保持接管。
+ *
+ * 解决用户反馈："右键之后页面出来了，但里面的内容都没法点击，点击直接跳到页面下面的东西了"。
+ *
+ * 根因：菜单项改成 pointerdown 即响应 → 菜单立刻关闭 → 页面上报的可点区域瞬间缩小
+ * （只剩宠物）→ 主进程判定"鼠标已不在可交互区" → **在用户还没松手时就把窗口设成穿透**
+ * → 用户的 mouseup 落到了桌面/别的程序上（用户看到"点到下面的东西了"）。
+ *
+ * 判定来源：**页面侧上报**（pet-mouse-held）。
+ * 页面监听 window 的 pointerdown/pointerup（捕获阶段，任何目标都能收到），
+ * 只要还有键按着就报 true；全部松开后延迟一小段再报 false
+ * （覆盖 click/mouseup 等后续事件，保证整个"按下-抬起"都发生在窗口内）。
+ * 比在主进程里轮询系统按键状态可靠得多，也不用额外依赖。
+ */
+let mouseHeld = false;
+
 function startPetHoverWatch() {
   if (hoverTimer) clearInterval(hoverTimer);
   hoverTimer = setInterval(() => {
     if (!petWin || petWin.isDestroyed() || !petWin.isVisible()) return;
     // 拖动/飞行期间已钉住接管 → 不参与判定，避免打断 pointer capture
     if (takeoverLocked) return;
+    // 鼠标键还按着（或刚松开不久）→ 保持接管，绝不切回穿透
+    // （否则用户的 mouseup 会落到桌面：用户反馈"点击直接跳到页面下面的东西了"）
+    if (mouseHeld) {
+      if (ignoreState) {
+        ignoreState = false;
+        petWin.setIgnoreMouseEvents(false);
+      }
+      return;
+    }
     const display = displayForPet();
     const scale = display.scaleFactor || 1;
     const { x: mx, y: my } = screen.getCursorScreenPoint(); // 物理像素
@@ -408,6 +434,19 @@ ipcMain.on("pet-takeover", (_e, locked) => {
   }
   // 解锁时不立刻改状态，交给下一轮轮询按当前位置自然恢复
 });
+/**
+ * v3.9.13 页面侧上报"鼠标键是否按着"。
+ * 按住期间强制保持接管，避免菜单关闭后判定区域缩小、在用户松手前切回穿透
+ * （那会让 mouseup 落到桌面 —— 用户反馈"点击直接跳到页面下面的东西了"）。
+ */
+ipcMain.on("pet-mouse-held", (_e, held) => {
+  mouseHeld = !!held;
+  if (mouseHeld && petWin && !petWin.isDestroyed()) {
+    ignoreState = false;
+    petWin.setIgnoreMouseEvents(false);
+  }
+});
+
 ipcMain.on("pet-hitbox", (_e, box) => {
   // 页面上报"宠物 + 展开的聊天面板"的实际矩形（窗口 CSS 像素坐标）。
   // 传 null 表示暂时没有可交互区域（例如宠物被隐藏）→ 整窗穿透。

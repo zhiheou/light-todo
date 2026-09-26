@@ -428,8 +428,20 @@ export default function PetShell({
     }
     // 每次按下清空轨迹，避免上一段拖拽残留影响甩速估算
     trail.current = [];
-    const d0 = dock?.x ?? 0;
-    const d1 = dock?.y ?? 0;
+    /**
+     * v3.9.13 🔴 修"点一下就跳到屏幕左上角"。
+     *
+     * 原来这里是 `const d0 = dock?.x ?? 0` —— 没拖动过时 dock 是 null，于是基准点取 (0,0)。
+     * 但宠物此时实际显示在**屏幕右下角**（css 的 right/bottom 定位），
+     * 代码却以为它在左上角 → 一拖就把宠物"拽"到 (0,0) 附近，
+     * 而且这个错误位置还会被 savePetDock 持久化，之后一直在左上角。
+     *
+     * 正确做法：以**元素当前的真实位置**为准（getBoundingClientRect），
+     * 它与 css 的 left/top/right/bottom 哪种定位方式无关，永远是对的。
+     */
+    const rect0 = el.getBoundingClientRect();
+    const d0 = Math.round(rect0.left);
+    const d1 = Math.round(rect0.top);
     drag.current = {
       id: e.pointerId,
       sx: e.clientX,

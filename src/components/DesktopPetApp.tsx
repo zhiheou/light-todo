@@ -4,7 +4,13 @@ import { loadTasks, saveTasks } from "../lib/tasks";
 import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
 import MascotAssistant from "./MascotAssistant";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
-import { hasStoredSession, isDesktopApp, reportLoginState, startHitAreaHeartbeat } from "../lib/desktopBridge";
+import {
+  hasStoredSession,
+  isDesktopApp,
+  reportLoginState,
+  startHitAreaHeartbeat,
+  startMouseHeldWatch,
+} from "../lib/desktopBridge";
 
 /**
  * 桌面版薄壳（Electron 用，v3.9）
@@ -67,6 +73,7 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   useEffect(() => {
     if (!isDesktopApp()) return;
     startHitAreaHeartbeat();
+    startMouseHeldWatch(); // v3.9.13：按住鼠标键期间保持接管，防 mouseup 落到桌面
   }, []);
 
   /**

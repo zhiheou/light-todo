@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld("petAPI", {
    */
   setMouseTakeover: (locked) => ipcRenderer.send("pet-takeover", !!locked),
   /**
+   * v3.9.13 上报"鼠标键是否按着"。按住期间主进程会强制保持接管，
+   * 避免菜单关闭后判定区域缩小、在用户松手前切回穿透（mouseup 会落到桌面）。
+   */
+  reportMouseHeld: (held) => ipcRenderer.send("pet-mouse-held", !!held),
+  /**
    * v3.9.4 登录状态回报：主进程据此决定"直接显示桌宠"还是"弹主窗口登录"。
    * 桌面版冷启动时页面会重试上报（见 src/lib/desktopBridge.ts）。
    */

@@ -12,6 +12,7 @@ import { getStoredSession } from "./session";
 interface PetAPI {
   setIgnoreMouseEvents: (b: boolean) => void;
   setMouseTakeover?: (locked: boolean) => void;
+  reportMouseHeld?: (held: boolean) => void;
   moveWindow: (dx: number, dy: number) => void;
   openMainWindow: () => void;
   quitApp?: () => void;
@@ -104,6 +105,68 @@ function flushHitAreas(): void {
   if (key === lastSent) return; // 没变就不发
   lastSent = key;
   api.setHitbox(merged);
+}
+
+/**
+ * v3.9.13：上报"鼠标键是否按着"，并在按住期间强制主进程保持接管。
+ *
+ * 背景（用户反馈）："右键之后页面出来了，但里面的内容都没法点击，
+ * 点击直接跳到页面下面的东西了"。
+ * 根因：菜单项 pointerdown 即响应 → 菜单立刻消失 → 可点区域上报瞬间缩小 →
+ * 主进程判定"鼠标不在可交互区" → **在用户松手前就把窗口设成穿透** →
+ * mouseup 落到桌面 → 用户看到"点到了下面的东西"。
+ *
+ * 这里用 window 的 pointerdown/pointerup（捕获阶段，任何目标都能收到）跟踪按键状态：
+ * 只要还有键按着就保持接管；全部松开后延迟 450ms 再解除，
+ * 覆盖 click/mouseup/contextmenu 等后续事件，保证整个"按下-抬起"都发生在窗口内。
+ */
+export function startMouseHeldWatch(): void {
+  if (typeof window === "undefined") return;
+  const api = petAPI();
+  if (!api?.reportMouseHeld) return;
+
+  const heldKeys = new Set<number>();
+  let releaseTimer: number | null = null;
+
+  const sync = () => {
+    const held = heldKeys.size > 0;
+    try {
+      api.reportMouseHeld?.(held);
+    } catch {
+      /* 忽略 */
+    }
+  };
+
+  const onDown = (e: PointerEvent) => {
+    if (releaseTimer !== null) {
+      window.clearTimeout(releaseTimer);
+      releaseTimer = null;
+    }
+    heldKeys.add(e.button ?? 0);
+    sync();
+  };
+  const onUp = (e: PointerEvent) => {
+    heldKeys.delete(e.button ?? 0);
+    if (heldKeys.size > 0) {
+      sync();
+      return;
+    }
+    // 松手后延迟一小段再解除，覆盖 click / contextmenu 等后续事件
+    if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+    releaseTimer = window.setTimeout(() => {
+      releaseTimer = null;
+      sync();
+    }, 450);
+  };
+
+  window.addEventListener("pointerdown", onDown, true);
+  window.addEventListener("pointerup", onUp, true);
+  window.addEventListener("pointercancel", onUp, true);
+  // 兜底：窗口失焦时清空（避免按键状态卡住导致永远接管）
+  window.addEventListener("blur", () => {
+    heldKeys.clear();
+    sync();
+  });
 }
 
 /**
