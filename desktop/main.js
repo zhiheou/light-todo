@@ -238,13 +238,15 @@ function createTray() {
     img = nativeImage.createEmpty();
   }
   tray = new Tray(img);
-  tray.setToolTip("轻待办 · 桌宠在运行");
+  tray.setToolTip("轻待办 · 桌宠在运行（双击我打开主界面）");
   refreshTrayMenu();
   // 左键点托盘 = 快速切换主窗口（和大多数常驻软件一致）
   tray.on("click", () => {
     if (mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) hideMainWindow();
     else createMainWindow();
   });
+  // 双击 = 直接打开主界面（用户反馈"主窗口关掉后找半天找不到"，给个最快的手势）
+  tray.on("double-click", () => createMainWindow());
 }
 
 /**

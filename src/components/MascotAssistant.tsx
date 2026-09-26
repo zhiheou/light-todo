@@ -24,7 +24,7 @@ import {
   type BrainCtx,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
-import { registerHitArea, reportChatOpen } from "../lib/desktopBridge";
+import { openMainWindow, registerHitArea, reportChatOpen } from "../lib/desktopBridge";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
 import {
   clearLearnLog,
@@ -805,6 +805,11 @@ export default function MascotAssistant({
       setOpen(false);
       setConfigOpen(false);
       setPreviewState(null);
+    } else if (action === "openMain") {
+      // v3.9.9 桌面版：把主界面（完整网页版窗口）叫回来。
+      // 用户反馈"程序叉掉之后找半天都找不到在哪" —— 主窗口关掉后只剩桌宠，
+      // 这个入口让用户右键桌宠就能把界面调出来（比翻托盘图标直观）。
+      openMainWindow();
     } else if (action === "config") {
       // 动作与设置面板（已合并，不再分"表情动作馆/皮肤与行为"两个入口）
       setConfigOpen(true);

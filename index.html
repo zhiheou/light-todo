@@ -7,17 +7,26 @@
     <link rel="icon" href="data:," />
     <title>轻待办</title>
     <!-- 字体：楷体（霞鹜文楷）+ Noto Sans SC；主题切换按需加载 -->
-    <!-- v3.9.2 perf：改为非阻塞加载（media=print 技巧）。此前 rel=stylesheet 会卡首屏：
-         国内网络下 fonts.googleapis.com 会连接挂起，jsdelivr 的 style.css 还会 @import 出
-         6 个 CSS + 24 个 woff2 子集，全部完成前浏览器不渲染。字体到了自动生效（font-display:swap）。 -->
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css" media="print" onload="this.media='all'" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" media="print" onload="this.media='all'" />
+    <!--
+      v3.9.9 perf：字体源全部改用**国内可达**的地址。
+      背景（用户反馈"网页每次打开都要半天"，我实测）：
+        - cdn.jsdelivr.net（原字体源）实测 27 秒超时 —— 加载不出来还一直挂着
+        - fonts.googleapis.com 国内同样不可靠
+        - registry.npmmirror.com（阿里镜像）实测 0.31 秒 ✅
+      字体本身是"锦上添花"：加载不出来会按 --font-app 的 fallback 走系统字体，
+      不影响任何功能。真正的问题是**等它超时会拖慢页面**，所以：
+        1) 换国内源（去掉 jsdelivr / googleapis）
+        2) 保留 media="print" 非阻塞技巧 + font-display:swap（字体晚到也不会白屏）
+    -->
+    <link rel="preconnect" href="https://registry.npmmirror.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://registry.npmmirror.com/lxgw-wenkai-webfont/1.7.0/files/style.css"
+      media="print"
+      onload="this.media='all'"
+    />
     <noscript>
-      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css" />
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" />
+      <link rel="stylesheet" href="https://registry.npmmirror.com/lxgw-wenkai-webfont/1.7.0/files/style.css" />
     </noscript>
     <!-- 首屏前恢复主题偏好，避免刷新后先闪默认样式再切换 -->
     <script>

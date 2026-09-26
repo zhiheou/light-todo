@@ -125,6 +125,11 @@ export function reportChatOpen(open: boolean): void {
   petAPI()?.setChatOpen?.(open);
 }
 
+/** 桌面版：把主界面窗口叫回来（主窗口关掉后只剩桌宠时的入口） */
+export function openMainWindow(): void {
+  petAPI()?.openMainWindow?.();
+}
+
 /**
  * 本机是否有可用登录态（同步判断，用于首帧快速回报）。
  * 桌面版两个窗口（主窗口 / 桌宠窗口）同源同 partition，

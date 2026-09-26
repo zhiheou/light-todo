@@ -9,7 +9,7 @@ import { petChatter } from "../lib/petChatter";
 import { clearPetDock, loadPetDock, savePetDock } from "../lib/petSkin";
 import { registerHitArea } from "../lib/desktopBridge";
 
-export type PetMenuAction = "chat" | "expression" | "config" | "hide";
+export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain";
 
 export interface PetShellProps {
   mode: "work" | "personal";
@@ -142,6 +142,8 @@ export default function PetShell({
    * 因为窗口本身就是全屏的，窗口坐标 == 屏幕坐标，拖拽/甩飞物理无需任何转换。
    */
   const fullscreen = isFullscreenPetWindow();
+  /** 桌面版专属菜单项（"打开主界面"）只在桌面版显示 */
+  const isDesktopPet = fullscreen;
   /** 本段飞行起始时间（看门狗用：超时强制落定，杜绝"永远飞/卡死"） */
   const flightStart = useRef(0);
   /** 看门狗：飞行超过该毫秒数仍未 settle → 强制停下（正常甩飞 2-3s 内必停） */
@@ -599,6 +601,18 @@ export default function PetShell({
           <button type="button" onClick={() => { onMenu("config"); setMenu(null); }}>⚙ 动作与设置</button>
           <div className="pet-menu-sep" />
           <button type="button" className="danger" onClick={() => { onMenu("hide"); setMenu(null); }}>🙈 隐藏轻宜</button>
+          {/*
+            v3.9.9 桌面版专属：打开主界面。
+            用户反馈："程序叉掉之后找半天都找不到在哪" —— 主窗口关掉后只剩桌宠，
+            没有显眼的入口把主界面叫回来。这里给一个（不做这个的话只能去翻托盘图标）。
+            桌面版才显示：网页版没有"主窗口"这个概念。isFullscreenPetWindow() 即桌面版全屏桌宠窗。
+          */}
+          {isDesktopPet && (
+            <>
+              <div className="pet-menu-sep" />
+              <button type="button" onClick={() => { onMenu("openMain"); setMenu(null); }}>🪟 打开主界面</button>
+            </>
+          )}
           {dock && (
             <>
               <div className="pet-menu-sep" />
