@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("petAPI", {
   openMainWindow: () => ipcRenderer.send("open-main-window"),
   /** 收起主窗口（登录完成后只留桌宠） */
   closeMainWindow: () => ipcRenderer.send("close-main-window"),
+  /** v3.9.10 彻底退出整个程序（桌宠 + 窗口一起关）—— 用户要的"退出桌宠才是彻底关闭" */
+  quitApp: () => ipcRenderer.send("quit-app"),
   /**
    * v3.9.4 登录状态回报：主进程据此决定"直接显示桌宠"还是"弹主窗口登录"。
    * 桌面版冷启动时页面会重试上报（见 src/lib/desktopBridge.ts）。

@@ -13,6 +13,7 @@ interface PetAPI {
   setIgnoreMouseEvents: (b: boolean) => void;
   moveWindow: (dx: number, dy: number) => void;
   openMainWindow: () => void;
+  quitApp?: () => void;
   closeMainWindow: () => void;
   setPetSize: (px: number) => void;
   reportLogin: (loggedIn: boolean) => void;
@@ -128,6 +129,11 @@ export function reportChatOpen(open: boolean): void {
 /** 桌面版：把主界面窗口叫回来（主窗口关掉后只剩桌宠时的入口） */
 export function openMainWindow(): void {
   petAPI()?.openMainWindow?.();
+}
+
+/** 桌面版：彻底退出整个程序（桌宠 + 窗口一起关） */
+export function quitApp(): void {
+  petAPI()?.quitApp?.();
 }
 
 /**

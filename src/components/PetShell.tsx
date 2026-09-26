@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PetDock, PetExpressionId, PetSkin } from "../types";
 import { BloubAvatar } from "./BloubAvatar";
 import type { Look } from "../lib/bloub/engine";
@@ -9,7 +9,7 @@ import { petChatter } from "../lib/petChatter";
 import { clearPetDock, loadPetDock, savePetDock } from "../lib/petSkin";
 import { registerHitArea } from "../lib/desktopBridge";
 
-export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain";
+export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain" | "quit";
 
 export interface PetShellProps {
   mode: "work" | "personal";
@@ -479,10 +479,39 @@ export default function PetShell({
       onSingleClick();
     }
   }
+  /**
+   * 右键菜单定位。
+   *
+   * v3.9.10 修的真 bug（用户反馈"右键那么多功能没有一个可以用的"）：
+   * 原来直接把菜单放在鼠标位置 `{left: e.clientX, top: e.clientY}`，**没做边界处理**。
+   * 而桌宠默认就在**屏幕右下角**，右键自然也在右下 → 菜单（150×200）必然从右下溢出窗口，
+   * 底部那几个按钮（动作与设置 / 隐藏 / 回右下角）**落在窗口外面，点了事件根本到不了页面**。
+   * 现在：先按鼠标位置摆，量出实际尺寸后再夹进可视区域（窗口 = 整块屏幕）。
+   */
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+
   function onCtx(e: React.MouseEvent) {
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY });
+    setMenuPos({ x: e.clientX, y: e.clientY }); // 先用鼠标位置，量完尺寸再修正
   }
+
+  useLayoutEffect(() => {
+    if (!menu) return;
+    const el = menuRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const margin = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // 右边/下边放不下就往回挪
+    let x = menu.x;
+    let y = menu.y;
+    if (x + r.width + margin > vw) x = Math.max(margin, vw - r.width - margin);
+    if (y + r.height + margin > vh) y = Math.max(margin, vh - r.height - margin);
+    if (x !== menuPos?.x || y !== menuPos?.y) setMenuPos({ x, y });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu]);
   /** 取消一次拖拽/飞行状态（pointercancel/失焦/捕获丢失时兜底，杜绝状态卡死） */
   function cancelInteraction(e: { pointerId?: number }) {
     const d = drag.current;
@@ -593,7 +622,7 @@ export default function PetShell({
         <div
           ref={menuRef}
           className="pet-menu"
-          style={{ left: menu.x, top: menu.y }}
+          style={{ left: menuPos?.x ?? menu.x, top: menuPos?.y ?? menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           <button type="button" onClick={() => { onMenu("chat"); setMenu(null); }}>💬 说说话</button>
@@ -611,6 +640,8 @@ export default function PetShell({
             <>
               <div className="pet-menu-sep" />
               <button type="button" onClick={() => { onMenu("openMain"); setMenu(null); }}>🪟 打开主界面</button>
+              {/* 用户要求：'退出桌宠之后才是彻底的关闭' —— 放在最后，语义上就是"关掉整个程序" */}
+              <button type="button" className="danger" onClick={() => { onMenu("quit"); setMenu(null); }}>🚪 退出轻待办</button>
             </>
           )}
           {dock && (

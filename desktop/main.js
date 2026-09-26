@@ -396,6 +396,15 @@ ipcMain.on("close-main-window", () => {
   /* 保留通道（老版本页面可能仍会调用），但不再收起窗口 */
 });
 ipcMain.on("open-main-window", () => createMainWindow());
+/**
+ * v3.9.10 彻底退出（右键桌宠 → "退出轻待办"）。
+ * 用户要求："关闭主界面桌宠并不会退出，退出桌宠之后才是彻底的关闭"。
+ * 必须先把 quitting 置位，否则 mainWin 的 close 拦截会把退出挡下来。
+ */
+ipcMain.on("quit-app", () => {
+  quitting = true;
+  app.quit();
+});
 
 // 页面回报登录态：决定"直接显示桌宠"还是"先开主窗口登录"
 //
@@ -404,11 +413,18 @@ ipcMain.on("open-main-window", () => createMainWindow());
 //  2. 已登录但会话失效 → 页面先乐观报 true（桌宠秒出现），校验失败后补报 false
 //     → 必须响应"第二次的 false"，否则用户卡在一只没数据的桌宠上、看不到登录窗
 //  3. 已登录有效 → 只报 true → 桌宠显示，不弹主窗口
+// 用户明确要求（2026-09-27）："希望打开这个程序的时候主界面也打开，不要直接自动关闭了，
+// 主界面和桌宠同时出现，关闭主界面桌宠并不会退出，退出桌宠之后才是彻底的关闭"
+//   → 已登录启动：**主窗口 + 桌宠一起出现**（此前只显示桌宠，用户以为程序没打开）
+//   → 关主窗口：只隐藏（桌宠继续在）
+//   → 退出：走托盘菜单的「退出」或右键桌宠的「退出」，那才是彻底关闭
 ipcMain.on("login-state", (_e, loggedIn) => {
   if (loggedIn) {
-    if (hasLoggedIn) return; // 已确认登录，忽略重复上报（避免登出瞬间的乱序把登录窗顶掉）
+    if (hasLoggedIn) return; // 已确认登录，忽略重复上报
     hasLoggedIn = true;
     if (petWin && !petWin.isDestroyed() && !petWin.isVisible()) petWin.show();
+    // 主窗口也开（用户要"两个一起出现"）。若已经开着就不重复创建。
+    if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) createMainWindow();
     return;
   }
   // 未登录 / 会话失效

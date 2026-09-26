@@ -24,7 +24,7 @@ import {
   type BrainCtx,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
-import { openMainWindow, registerHitArea, reportChatOpen } from "../lib/desktopBridge";
+import { openMainWindow, quitApp, registerHitArea, reportChatOpen } from "../lib/desktopBridge";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
 import {
   clearLearnLog,
@@ -810,6 +810,10 @@ export default function MascotAssistant({
       // 用户反馈"程序叉掉之后找半天都找不到在哪" —— 主窗口关掉后只剩桌宠，
       // 这个入口让用户右键桌宠就能把界面调出来（比翻托盘图标直观）。
       openMainWindow();
+    } else if (action === "quit") {
+      // v3.9.10 用户要求："打开主界面和桌宠同时出现，关闭主界面桌宠并不会退出，
+      // 退出桌宠之后才是彻底的关闭" —— 这是那个"彻底关闭"的入口。
+      quitApp();
     } else if (action === "config") {
       // 动作与设置面板（已合并，不再分"表情动作馆/皮肤与行为"两个入口）
       setConfigOpen(true);
