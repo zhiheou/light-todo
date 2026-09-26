@@ -24,7 +24,7 @@ import {
   type BrainCtx,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
-import { reportChatOpen, reportInteractiveRect } from "../lib/desktopBridge";
+import { registerHitArea, reportChatOpen } from "../lib/desktopBridge";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
 import {
   clearLearnLog,
@@ -240,32 +240,29 @@ export default function MascotAssistant({
   }, [open]);
 
   /**
-   * v3.9.4 桌面版：上报"可交互区域"= 宠物矩形 ∪ 面板矩形。
-   * 不上报的话主进程把整个窗口（含 56px 透明留白）当命中区 →
-   * 宠物周围一圈会抢鼠标、点桌面图标点不中。
+   * v3.9.7 桌面版：登记**聊天面板**为可交互区域。
+   *
+   * 宠物本体和右键菜单由 PetShell 自己登记（见那里的 registerHitArea），
+   * 这里只负责面板。三者会被 desktopBridge 合并成一个并集上报给主进程 ——
+   * 主进程据此决定"鼠标在这一片时接管、其余地方穿透"。
    */
   useEffect(() => {
-    const pet = petPos;
-    const panel = panelRef.current?.getBoundingClientRect();
-    if (!pet && !panel) {
-      reportInteractiveRect(null);
+    if (!open) {
+      registerHitArea("panel", null);
       return;
     }
-    if (!panel || !open) {
-      reportInteractiveRect(pet);
-      return;
-    }
-    if (!pet) {
-      reportInteractiveRect({ x: panel.x, y: panel.y, w: panel.width, h: panel.height });
-      return;
-    }
-    // 两块区域的并集
-    const x = Math.min(pet.x, panel.x);
-    const y = Math.min(pet.y, panel.y);
-    const x2 = Math.max(pet.x + pet.w, panel.x + panel.width);
-    const y2 = Math.max(pet.y + pet.h, panel.y + panel.height);
-    reportInteractiveRect({ x, y, w: x2 - x, h: y2 - y });
-  }, [petPos, open, panelSize]);
+    // 等一帧让面板完成布局再量（面板位置由 panelStyle 按宠物位置算出来）
+    const id = window.requestAnimationFrame(() => {
+      const el = panelRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      registerHitArea("panel", { x: r.x, y: r.y, w: r.width, h: r.height });
+    });
+    return () => {
+      window.cancelAnimationFrame(id);
+      registerHitArea("panel", null);
+    };
+  }, [open, petPos, panelSize]);
   const seenNudge = useRef<Set<number>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);

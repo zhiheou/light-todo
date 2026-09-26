@@ -7,6 +7,7 @@ import { actionToState, expressionToState } from "../lib/petBodyMap";
 import { flingVelocity, stepPhysics, type PhysicsState, type TrailSample } from "../lib/petPhysics";
 import { petChatter } from "../lib/petChatter";
 import { clearPetDock, loadPetDock, savePetDock } from "../lib/petSkin";
+import { registerHitArea } from "../lib/desktopBridge";
 
 export type PetMenuAction = "chat" | "expression" | "config" | "hide";
 
@@ -120,6 +121,7 @@ export default function PetShell({
     liveExpr.current = expression;
   }, [expression]);
   const shellRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const actTimer = useRef<number | null>(null);
   const drag = useRef<{
     id: number;
@@ -178,14 +180,40 @@ export default function PetShell({
   const lastReported = useRef("");
   useEffect(() => {
     const el = shellRef.current;
-    if (!el || !onPosition) return;
+    if (!el) return;
     const r = el.getBoundingClientRect();
+    // v3.9.7 桌面版：登记"宠物本体"为可交互区域（不登记的话整窗穿透，点不动宠物）
+    registerHitArea("pet", { x: r.x, y: r.y, w: r.width, h: r.height });
+    if (!onPosition) return;
     const key = `${Math.round(r.x)},${Math.round(r.y)}`;
     if (key === lastReported.current) return;
     lastReported.current = key;
     onPosition({ x: r.x, y: r.y, w: r.width, h: r.height });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dock, position, px, skin.size, flying.current]);
+  }, [dock, position, px, skin.size, flying.current, onPosition]);
+
+  // v3.9.7 桌面版：右键菜单登记为可交互区域。
+  //
+  // 为什么必须单独登记：菜单是 .pet-shell 的**兄弟节点**（见下方 JSX），
+  // 先前只登记了宠物本体 → 菜单那一片仍处于鼠标穿透状态 →
+  // 用户点"动作设置/隐藏/回右下角"全部没反应（事件穿透到桌面去了）。
+  useEffect(() => {
+    if (!menu) {
+      registerHitArea("menu", null);
+      return;
+    }
+    // 等一帧让菜单渲染出来再量尺寸
+    const id = window.requestAnimationFrame(() => {
+      const el = menuRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      registerHitArea("menu", { x: r.x, y: r.y, w: r.width, h: r.height });
+    });
+    return () => {
+      window.cancelAnimationFrame(id);
+      registerHitArea("menu", null);
+    };
+  }, [menu]);
 
   // 主导表情变化 → 形变态（清掉一次性动作的返回定时）
   useEffect(() => {
@@ -560,7 +588,12 @@ export default function PetShell({
       </div>
 
       {menu && (
-        <div className="pet-menu" style={{ left: menu.x, top: menu.y }} onClick={(e) => e.stopPropagation()}>
+        <div
+          ref={menuRef}
+          className="pet-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <button type="button" onClick={() => { onMenu("chat"); setMenu(null); }}>💬 说说话</button>
           <button type="button" onClick={() => { onMenu("expression"); setMenu(null); }}>🎭 玩个动作</button>
           <button type="button" onClick={() => { onMenu("config"); setMenu(null); }}>⚙ 动作与设置</button>
