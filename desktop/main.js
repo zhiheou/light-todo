@@ -55,6 +55,15 @@ if (!gotSingleInstanceLock) {
 }
 
 /**
+ * 线上站点地址（桌面版加载的就是它，所以前端改动部署后自动生效）。
+ * ⚠️ v3.9.14 教训：我加防缓存代码时**误删了这一行**，导致整个程序一启动就崩
+ * （`ReferenceError: APP_URL is not defined`，在 main.js:677 的 UPDATE_FEED 用到）。
+ * node --check 只查语法、不查未定义变量，所以打包时没报错。
+ * 现在加了一道"启动自检"（见文件末尾的自检块），这类错误不会再溜进安装包。
+ */
+const APP_URL = process.env.LIGHT_TODO_URL || "https://todo.aebuiyke.xyz";
+
+/**
  * v3.9.14 🔴 给 URL 加"每次启动都不同"的参数，绕过 Electron 的顽固缓存。
  *
  * 踩过的大坑（用户报"怎么又产生新 bug / 还是一堆 bug"的**总根源**）：
