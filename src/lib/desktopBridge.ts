@@ -11,6 +11,7 @@ import { getStoredSession } from "./session";
  */
 interface PetAPI {
   setIgnoreMouseEvents: (b: boolean) => void;
+  setMouseTakeover?: (locked: boolean) => void;
   moveWindow: (dx: number, dy: number) => void;
   openMainWindow: () => void;
   quitApp?: () => void;
@@ -109,9 +110,8 @@ function flushHitAreas(): void {
  * 定时重发当前的可点区域（保险机制）。
  *
  * 为什么需要：主进程靠"页面上报的矩形"判定要不要接管鼠标，而上报只在**变化时**才发。
- * 如果用户把鼠标停在某处不动、期间窗口/菜单状态有过变化（比如面板刚关、菜单刚开），
- * 判定可能停在旧值上 —— 表现为"明明点在按钮上却穿透"。
- * 定时重发（1.5s 一次，内容没变时主进程侧无副作用）把这种状态自动纠正回来。
+ * 如果判定停在旧值（比如拖动结束后），会出现"明明点在按钮上却穿透"。
+ * 定时重发（1.5s 一次）把这种状态自动纠正回来。
  */
 export function startHitAreaHeartbeat(): void {
   if (typeof window === "undefined") return;
@@ -122,6 +122,27 @@ export function startHitAreaHeartbeat(): void {
   };
   window.setInterval(tick, 1500);
 }
+
+/**
+ * 拖动/飞行期间"钉住"鼠标接管状态。
+ *
+ * 为什么需要：拖拽依赖 pointer capture，而 pointer capture 的前提是**窗口处于接管状态**。
+ * 一旦中途被设成穿透，capture 立即失效 → 后续 pointermove/pointerup 全部收不到 →
+ * **拖动断在半路**（用户表现："拖不动"、"点一下宠物直接跳到左上角"）。
+ * 拖动开始时钉住、结束时释放，中途任何判定都不会把它关掉，从而彻底杜绝断线。
+ */
+export function setMouseTakeover(locked: boolean): void {
+  petAPI()?.setMouseTakeover?.(locked);
+}
+
+/**
+ * 某个点是否落在"可点区域"内（页面侧与主进程共用同一判定源）。
+ *
+ * v3.9.12：桌面版必须用它来判断"鼠标在不在宠物/菜单/面板上"，
+ * 而**不能**像旧代码那样只看 event.target 是不是 .pet-shell
+ * —— 旧写法在拖动时会误判（指针捕获后 target 一直是被捕获的元素），
+ * 导致拖动中途把鼠标设成穿透、拖拽立刻断掉，后续点击也全部落空。
+ */
 
 /**
  * 登记 / 更新一个可交互区域。传 null 表示该来源当前不存在（例如菜单已关闭）。

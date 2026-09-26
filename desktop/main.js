@@ -329,12 +329,19 @@ function installUpdateNow() {
 let hoverTimer = null;
 /** 宠物实际占用的区域（相对窗口 CSS 像素），由页面通过 pet-hitbox 上报 */
 let petHitbox = null;
+/** v3.9.12 拖动/飞行期间是否"钉住"接管（钉住时轮询不再改动穿透状态） */
+let takeoverLocked = false;
+/** 当前是否处于"忽略鼠标"（穿透）状态 —— 提升到模块作用域，供 pet-takeover 复用 */
+let ignoreState = true;
+/** 钉住的兜底看门狗：超时未解锁则自动释放（防鼠标接管被永久钉死） */
+let lockWatchdog = null;
 
 function startPetHoverWatch() {
   if (hoverTimer) clearInterval(hoverTimer);
-  let ignoring = true;
   hoverTimer = setInterval(() => {
     if (!petWin || petWin.isDestroyed() || !petWin.isVisible()) return;
+    // 拖动/飞行期间已钉住接管 → 不参与判定，避免打断 pointer capture
+    if (takeoverLocked) return;
     const display = displayForPet();
     const scale = display.scaleFactor || 1;
     const { x: mx, y: my } = screen.getCursorScreenPoint(); // 物理像素
@@ -345,11 +352,11 @@ function startPetHoverWatch() {
     // 命中判定：只认页面上报的矩形；没上报 → 不接管（全屏窗口绝不能兜底成全屏可点）
     const hb = petHitbox;
     const inside = !!hb && rx >= hb.x && rx <= hb.x + hb.w && ry >= hb.y && ry <= hb.y + hb.h;
-    if (inside && ignoring) {
-      ignoring = false;
+    if (inside && ignoreState) {
+      ignoreState = false;
       petWin.setIgnoreMouseEvents(false);
-    } else if (!inside && !ignoring) {
-      ignoring = true;
+    } else if (!inside && !ignoreState) {
+      ignoreState = true;
       petWin.setIgnoreMouseEvents(true, { forward: true });
     }
   }, 25); // 25ms ≈ 40fps：够跟手。60ms 时鼠标快速移到菜单上、判定还没跟上，
@@ -368,8 +375,38 @@ function startPetHoverWatch() {
  */
 ipcMain.on("pet-ignore", (_e, ignore) => {
   if (!petWin) return;
+  if (takeoverLocked) return; // 拖动/飞行中：钉住接管，任何穿透请求都不受理
   if (petHitbox) return; // 已被轮询接管，忽略页面侧的过时判定
   if (typeof ignore === "boolean") petWin.setIgnoreMouseEvents(ignore, { forward: true });
+});
+
+/**
+ * v3.9.12 拖动/飞行期间"钉住"鼠标接管。
+ *
+ * 为什么必须有：拖拽依赖 pointer capture，而 capture 的前提是窗口处于**接管**状态。
+ * 拖动过程中宠物在移动、hitbox 又是逐帧上报的，判定稍有延迟就会把窗口设成穿透 →
+ * capture 立刻失效 → 后续 pointermove/pointerup 全收不到 →
+ * **拖动断在半路**（用户表现："拖不动"，或松手后宠物跳到别处）。
+ * 锁定期间 `startPetHoverWatch` 不再改动接管状态，直到拖动/飞行结束才解锁。
+ */
+ipcMain.on("pet-takeover", (_e, locked) => {
+  takeoverLocked = !!locked;
+  if (lockWatchdog) {
+    clearTimeout(lockWatchdog);
+    lockWatchdog = null;
+  }
+  if (!petWin || petWin.isDestroyed()) return;
+  if (takeoverLocked) {
+    ignoreState = false;
+    petWin.setIgnoreMouseEvents(false); // 立即接管，保证拖拽不中断
+    // 兜底看门狗：拖动/飞行正常最多几秒；若 20 秒还没收到解锁（页面崩了/事件丢了），
+    // 自动释放，绝不让鼠标接管被**永久钉死**（那会导致宠物彻底点不动、拖不动）。
+    lockWatchdog = setTimeout(() => {
+      takeoverLocked = false;
+      lockWatchdog = null;
+    }, 20000);
+  }
+  // 解锁时不立刻改状态，交给下一轮轮询按当前位置自然恢复
 });
 ipcMain.on("pet-hitbox", (_e, box) => {
   // 页面上报"宠物 + 展开的聊天面板"的实际矩形（窗口 CSS 像素坐标）。

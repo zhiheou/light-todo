@@ -7,7 +7,7 @@ import { actionToState, expressionToState } from "../lib/petBodyMap";
 import { flingVelocity, stepPhysics, type PhysicsState, type TrailSample } from "../lib/petPhysics";
 import { petChatter } from "../lib/petChatter";
 import { clearPetDock, loadPetDock, savePetDock } from "../lib/petSkin";
-import { registerHitArea } from "../lib/desktopBridge";
+import { registerHitArea, setMouseTakeover } from "../lib/desktopBridge";
 
 export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain" | "quit";
 
@@ -334,6 +334,9 @@ export default function PetShell({
       el.style.top = `${r.state.y}px`;
       el.style.right = "auto";
       el.style.bottom = "auto";
+      // v3.9.12：甩飞（物理飞行）过程中同样要实时上报，否则飞过旧区域后
+      // 主进程会判定"鼠标不在可交互区"→ 穿透 → 飞行中/落地后的点击全部落空
+      registerHitArea("pet", { x: r.state.x, y: r.state.y, w: px, h: px });
 
       // 撞墙：轻微旋转抖一下 + 冷却触发"哎哟"
       if (r.hit) {
@@ -436,6 +439,10 @@ export default function PetShell({
       moved: false,
     };
     el.setPointerCapture(e.pointerId);
+    // v3.9.12：拖动期间**钉住**鼠标接管。拖拽依赖 pointer capture，
+    // 而 capture 的前提是窗口处于接管状态；中途一旦被设成穿透，capture 立即失效 →
+    // 后续 pointermove/pointerup 全部收不到 → 拖动断在半路（"拖不动"、宠物乱跳）。
+    setMouseTakeover(true);
     // 被抓住时冒一句（偶尔，避免每次都打扰）
     if (chatterOn && Math.random() < 0.6) popTip(petChatter.held());
   }
@@ -459,10 +466,30 @@ export default function PetShell({
       el.style.top = `${clamped.y}px`;
       el.style.right = "auto";
       el.style.bottom = "auto";
+      /**
+       * v3.9.12 关键：拖动过程中**实时上报新位置**。
+       *
+       * 不这样做会出大问题：可点区域上报只在 React effect 里做（依赖 dock 等 state），
+       * 而拖动是直写 DOM、结束时才 setDock —— 中间这段时间主进程还按**旧位置**判定。
+       * 宠物一旦被拖出旧的 128×128 区域，主进程就认为"鼠标不在可交互区"→ 设成穿透 →
+       * **拖拽立刻断掉**，而且此后鼠标/点击全部落到桌面（用户表现："拖不动、点不动、
+       * 底下的文件夹反而在动"）。
+       */
+      registerHitArea("pet", { x: clamped.x, y: clamped.y, w: px, h: px });
       lastDock.current = clamped;
     }
   }
   function onUp(e: React.PointerEvent) {
+    /**
+     * v3.9.12 🔴 无条件先解锁！
+     *
+     * 踩过的坑（我自己引入的，导致"桌宠完全点不动、拖不动"）：
+     * 原先把 setMouseTakeover(false) 写在下面的早退 return **之后**，
+     * 于是 pointerId 不匹配 / drag.current 已为 null 时提前 return → **永远不解锁** →
+     * 主进程的鼠标接管被永久钉死，轮询再也不工作 → 宠物彻底失联。
+     * 现在放在最前面：无论这次交互以什么方式结束，都一定释放。
+     */
+    setMouseTakeover(false);
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     drag.current = null;
@@ -542,6 +569,7 @@ export default function PetShell({
       const el = shellRef.current;
       if (el) el.style.transform = "";
       wobble.current = 0;
+      setMouseTakeover(false); // v3.9.12：取消交互也要释放钉住（防接管状态永久锁死）
     }
   }
 

@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld("petAPI", {
   /** v3.9.10 彻底退出整个程序（桌宠 + 窗口一起关）—— 用户要的"退出桌宠才是彻底关闭" */
   quitApp: () => ipcRenderer.send("quit-app"),
   /**
+   * v3.9.12 拖动/飞行期间"钉住"鼠标接管。
+   * 拖拽依赖 pointer capture，而 capture 的前提是窗口处于接管状态；
+   * 中途一旦被设成穿透，capture 立即失效 → 拖动断在半路（用户表现"拖不动"）。
+   */
+  setMouseTakeover: (locked) => ipcRenderer.send("pet-takeover", !!locked),
+  /**
    * v3.9.4 登录状态回报：主进程据此决定"直接显示桌宠"还是"弹主窗口登录"。
    * 桌面版冷启动时页面会重试上报（见 src/lib/desktopBridge.ts）。
    */
