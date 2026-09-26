@@ -83,6 +83,21 @@ export function responsivePx(size: "s" | "m" | "l"): number {
 }
 
 /**
+ * v3.9.14 🔴 可活动范围（右下边界）= **工作区**，不是整块屏幕。
+ *
+ * 桌面版的全屏窗为了盖住任务栏用了整块屏幕（bounds），若宠物也按整块屏幕夹取，
+ * 就会被拖/甩到任务栏后面 —— **看不见，却还在那里吃鼠标**（点任务栏没反应）。
+ * 独立审查发现的真 bug，所以这里统一改用"工作区尺寸"（排除任务栏那一条）。
+ * `window.petDisplay` 注入的就是 workAreaSize；网页版退回窗口尺寸。
+ */
+function petBounds() {
+  const dm = (window as unknown as { petDisplay?: { width?: number; height?: number } }).petDisplay;
+  const w = typeof dm?.width === "number" && dm.width > 0 ? dm.width : window.innerWidth;
+  const h = typeof dm?.height === "number" && dm.height > 0 ? dm.height : window.innerHeight;
+  return { w, h };
+}
+
+/**
  * 是否运行在桌面版的"全屏透明桌宠窗口"里。
  * 该模式特征：窗口铺满整块屏幕，所以屏幕坐标 == 窗口坐标（拖拽/甩飞物理可直接复用）。
  */
@@ -191,6 +206,14 @@ export default function PetShell({
     if (key === lastReported.current) return;
     lastReported.current = key;
     onPosition({ x: r.x, y: r.y, w: r.width, h: r.height });
+    /**
+     * v3.9.14 🔴 cleanup：组件卸载（用户点"隐藏轻宜"）时**必须注销**这块区域。
+     * 否则登记的"宠物矩形"永远留在表里 → 宠物消失后**原地那块仍然吃鼠标**，
+     * 那下面的桌面图标怎么点都没反应（独立审查发现的真 bug）。
+     */
+    return () => {
+      registerHitArea("pet", null);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dock, position, px, skin.size, flying.current, onPosition]);
 
@@ -326,8 +349,9 @@ export default function PetShell({
       if (!el) return;
       const dt = (now - last) / 1000;
       last = now;
-      const maxX = window.innerWidth - px;
-      const maxY = window.innerHeight - px;
+      const b = petBounds();
+      const maxX = b.w - px;
+      const maxY = b.h - px;
       const r = stepPhysics(phys.current, dt, { minX: 0, minY: 0, maxX, maxY });
       phys.current = r.state;
       el.style.left = `${r.state.x}px`;
@@ -470,8 +494,9 @@ export default function PetShell({
     const ny = e.clientY - d.sy + d.dy0;
     if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 5) d.moved = true;
     if (d.moved) {
-      const maxX = window.innerWidth - px;
-      const maxY = window.innerHeight - px;
+      const b = petBounds();
+      const maxX = b.w - px;
+      const maxY = b.h - px;
       const clamped = { x: Math.max(0, Math.min(maxX, nx)), y: Math.max(0, Math.min(maxY, ny)) };
       // 直写 DOM（合成后的定位是 left/top），避免每次 move setState
       el.style.left = `${clamped.x}px`;

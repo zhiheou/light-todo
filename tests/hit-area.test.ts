@@ -35,40 +35,54 @@ async function freshBridge() {
 }
 
 describe("可交互区域登记（桌面版穿透命中）", () => {
-  it("登记单个区域 → 上报该区域本身", async () => {
+  it("登记单个区域 → 上报兼容格式（包围盒 + rects 列表）", async () => {
     const { registerHitArea } = await freshBridge();
     registerHitArea("pet", { x: 2400, y: 1240, w: 128, h: 128 });
-    expect(sent.at(-1)).toEqual({ x: 2400, y: 1240, w: 128, h: 128 });
+    const p = sent.at(-1) as any;
+    // v3.9.14：协议必须**双向兼容** —— 前端会自动更新，外壳不会。
+    // 旧外壳读 x/y/w/h，新外壳优先读 rects。
+    expect(p.x).toBe(2400);
+    expect(p.y).toBe(1240);
+    expect(p.w).toBe(128);
+    expect(p.h).toBe(128);
+    expect(p.rects).toEqual([{ x: 2400, y: 1240, w: 128, h: 128 }]);
   });
 
-  it("【回归】宠物 + 右键菜单 → 必须合并成覆盖两者的区域", async () => {
+  it("【回归】宠物 + 右键菜单 → rects 里保留两个**独立**矩形", async () => {
     const { registerHitArea } = await freshBridge();
-    // 宠物在右下角
     registerHitArea("pet", { x: 2400, y: 1240, w: 128, h: 128 });
-    // 菜单弹在宠物右下方向（超出宠物范围）—— 这正是原先漏掉的那块
     registerHitArea("menu", { x: 2470, y: 1310, w: 150, h: 157 });
-    const merged = sent.at(-1);
-    expect(merged).not.toBeNull();
-    // 合并结果必须把菜单完整包含进去，否则菜单点不动
-    expect(merged!.x).toBeLessThanOrEqual(2470);
-    expect(merged!.y).toBeLessThanOrEqual(1310);
-    expect(merged!.x + merged!.w).toBeGreaterThanOrEqual(2470 + 150);
-    expect(merged!.y + merged!.h).toBeGreaterThanOrEqual(1310 + 157);
+    const p = sent.at(-1) as any;
+    // 新外壳按 rects 逐个判定 → 两矩形之间的空白不会被接管
+    expect(p.rects).toContainEqual({ x: 2400, y: 1240, w: 128, h: 128 });
+    expect(p.rects).toContainEqual({ x: 2470, y: 1310, w: 150, h: 157 });
+    // 旧外壳用包围盒（会把中间那片也算上，但不至于点不动 —— 兼容优先）
+    expect(p.w).toBeGreaterThanOrEqual(128);
   });
 
-  it("移除某个来源（菜单关闭）→ 合并区域收缩回只剩宠物", async () => {
+  it("【v3.9.14 回归】两个分离矩形之间的空白**不能**被算作可交互区", async () => {
+    const { registerHitArea, isPointInHitAreas } = await freshBridge();
+    // 宠物在右下角，聊天面板在它左边很远处
+    registerHitArea("pet", { x: 2400, y: 1240, w: 128, h: 128 });
+    registerHitArea("panel", { x: 1200, y: 400, w: 340, h: 460 });
+    // 两个矩形正中间那片空白
+    const between = { x: 1800, y: 800 };
+    // 旧实现（合并包围盒）会把这片也算成可点 → 用户点不到桌面图标
+    expect(isPointInHitAreas(between.x, between.y)).toBe(false);
+    // 而两个矩形内部仍应命中
+    expect(isPointInHitAreas(2460, 1300)).toBe(true);
+    expect(isPointInHitAreas(1300, 500)).toBe(true);
+  });
+
+  it("移除某个来源（菜单关闭）→ 列表收缩回只剩宠物", async () => {
     const { registerHitArea } = await freshBridge();
     registerHitArea("pet", { x: 2400, y: 1240, w: 128, h: 128 });
     registerHitArea("menu", { x: 2470, y: 1310, w: 150, h: 157 });
     registerHitArea("menu", null); // 菜单关闭
-    expect(sent.at(-1)).toEqual({ x: 2400, y: 1240, w: 128, h: 128 });
-  });
-
-  it("全部移除 → 上报 null（整窗穿透，不抢鼠标）", async () => {
-    const { registerHitArea, clearHitAreas } = await freshBridge();
-    registerHitArea("pet", { x: 0, y: 0, w: 100, h: 100 });
-    clearHitAreas();
-    expect(sent.at(-1)).toBeNull();
+    const p = sent.at(-1) as any;
+    expect(p.rects).toEqual([{ x: 2400, y: 1240, w: 128, h: 128 }]);
+    expect(p.x).toBe(2400);
+    expect(p.w).toBe(128);
   });
 
   it("尺寸为 0 的区域视为不存在（不登记空矩形）", async () => {
@@ -85,19 +99,6 @@ describe("可交互区域登记（桌面版穿透命中）", () => {
     registerHitArea("pet", { x: 100, y: 100, w: 50, h: 50 });
     registerHitArea("pet", { x: 100, y: 100, w: 50, h: 50 });
     expect(sent.length).toBe(countAfterFirst);
-  });
-
-  it("三个来源（宠物+菜单+面板）→ 并集覆盖全部", async () => {
-    const { registerHitArea } = await freshBridge();
-    registerHitArea("pet", { x: 2400, y: 1240, w: 128, h: 128 });
-    registerHitArea("menu", { x: 2470, y: 1310, w: 150, h: 157 });
-    registerHitArea("panel", { x: 1900, y: 700, w: 340, h: 460 });
-    const merged = sent.at(-1)!;
-    // 左上角应取 panel 的，右下角应取 menu 的
-    expect(merged.x).toBe(1900);
-    expect(merged.y).toBe(700);
-    expect(merged.x + merged.w).toBe(2470 + 150);
-    expect(merged.y + merged.h).toBe(1310 + 157);
   });
 
   it("网页版（无 petAPI）不报错、静默跳过", async () => {

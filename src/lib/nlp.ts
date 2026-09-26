@@ -125,6 +125,10 @@ const STRIP_RULES: RegExp[] = [
   /每(?:隔)?\d{1,2}天/g,
   /每天|每日/g,
   /(?:下下|这|本|下)?(?:周|星期)[一二三四五六日天]/g,
+  // v3.9.14：补"每个月N号 / 每N周"的剥离（原来只有"每月N号"→"每个月15号"整条漏掉，
+  // 标题留残渣"每个月 交房租"且循环识别不到）
+  /每\s*个?\s*月\s*\d{1,2}\s*[日号]/g,
+  /每\s*(?:一|两|二|三|\d+)?\s*(?:周|星期)(?!\s*[一二三四五六日天])/g,
   /(?:下|本|这)个?月|月初|周末|尽快|尽早|抓紧/g,
   /今天|明天|后天|大后天/g,
   /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
@@ -136,8 +140,18 @@ const STRIP_RULES: RegExp[] = [
   /\d{4}-\d{1,2}-\d{1,2}/g,
   /\d{1,2}[:：]\d{1,2}/g,
   /\d{1,2}点(?:半|一刻|三刻|\d{1,2}分?)?/g,
+  // v3.9.14：补"X天后"（原来只剥离"X天内"，"3天后"的"3天"被吞数字规则吃掉 →
+  // 标题变成"后交房租"）
+  /[\d一二两三四五六七八九十]+\s*天(?:后|之后|以后)/g,
   /\d{1,2}\s*(?:天|日)\s*(?:之?内|内)?/g,
-  /[\d一二两三四五六七八九十]+\s*个?\s*小时(?:后|之后)|[\d一二两三四五六七八九十]+|半\s*分钟?(?:后|之后)/g,
+  /**
+   * v3.9.14 🔴 去掉"吞掉所有中文数字"的分支。
+   * 原规则 `[\d一二两三四五六七八九十]+` 会把标题里任何数字都吃掉：
+   *   "买3斤苹果" → "买 斤苹果"；"把3个文件发我" → "把 个文件发我"。
+   * 只保留真正表达时间的那两段：X小时(后) / 半分钟(后)。
+   */
+  /[\d一二两三四五六七八九十]+\s*个?\s*小时(?:后|之后)/g,
+  /半\s*分钟?(?:后|之后)/g,
   /提醒/g,
 ];
 
@@ -214,11 +228,17 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
   }
 
   // ---- 循环规则（必须先于日期规则，否则"每周一"会被拆成"周"+"一"误判）----
-  const monthly = merged.match(/每月(\d{1,2})[日号]/);
+  /**
+   * v3.9.14 🔴 "每个月15号/每月15号"都要认（原来只认"每月"，"每个月"整条漏掉 →
+   * 用户说"每个月15号交房租"，结果**没有循环**、标题还留着"每个月"）。
+   */
+  const monthly = merged.match(/每\s*个?\s*月\s*(\d{1,2})\s*[日号]/);
   if (monthly) {
     const day = Number(monthly[1]);
-    repeat = { freq: "monthly", interval: 1, dayOfMonth: day };
-    dueDate = toDateString(nextMonthlyDay(day, now));
+    if (day >= 1 && day <= 31) {
+      repeat = { freq: "monthly", interval: 1, dayOfMonth: day };
+      dueDate = toDateString(nextMonthlyDay(day, now));
+    }
   }
 
   const weekly = merged.match(/每(?:周|星期)([一二三四五六日天])/);
@@ -226,6 +246,26 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     const weekday = WEEKDAYS[weekly[1]];
     repeat = { freq: "weekly", interval: 1, weekday };
     dueDate = toDateString(nextWeekday(weekday, now));
+  }
+
+  /**
+   * v3.9.14 🔴 补"每2周开会 / 每两周开会"（原来只认"每周X"，
+   * "每2周开会"标题变"每 周开会"、无循环、无日期）。
+   */
+  const everyNWeeks = merged.match(/每\s*(?:隔\s*)?([\d一二两三四五六七八九十]+)\s*(?:周|星期)(?!\s*[一二三四五六日天])/);
+  if (everyNWeeks && !repeat) {
+    const n = /^\d+$/.test(everyNWeeks[1]) ? Number(everyNWeeks[1]) : cnToNum(everyNWeeks[1]) ?? 1;
+    if (n >= 1 && n <= 52) {
+      repeat = { freq: "weekly", interval: n, weekday: now.getDay() };
+      dueDate = toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() + n * 7));
+    }
+  }
+
+  /** v3.9.14：补"每周交周报"（不带周几）—— 默认按今天算下一周 */
+  const everyWeekBare = /每\s*(?:周|星期)(?!\s*[一二三四五六日天])/.test(merged);
+  if (everyWeekBare && !repeat) {
+    repeat = { freq: "weekly", interval: 1, weekday: now.getDay() };
+    dueDate = toDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7));
   }
 
   const weekdayRecur = /每个工作日|工作日/.test(merged);
@@ -309,9 +349,25 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     dueTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
-  const relative = merged.match(/(今天|明天|后天)/);
+  /**
+   * v3.9.14 🔴 修"X天后"整条丢失（独立审查发现的真 bug）。
+   * 原来只支持"今天/明天/后天"，"3天后""三天后"完全没有解析规则，
+   * 而剥离规则又把"3天"吃掉 → 标题变成"后交房租"、**日期为空**，
+   * 保存后同步到云端，任务就永远不知道是哪天了。
+   */
+  const relDay = merged.match(/([\d一二两三四五六七八九十]+)\s*天(?:后|之后|以后)/);
+  if (relDay) {
+    const n = /^\d+$/.test(relDay[1]) ? Number(relDay[1]) : cnToNum(relDay[1]) ?? 0;
+    if (n > 0 && n <= 365) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
+      dueDate = toDateString(d);
+    }
+  }
+
+  // v3.9.14 🔴 "大后天"必须在"后天"之前判断（否则会先匹配到"后天"变成 +2 天）
+  const relative = merged.match(/(大后天|今天|明天|后天)/);
   if (relative) {
-    const offset = relative[1] === "明天" ? 1 : relative[1] === "后天" ? 2 : 0;
+    const offset = relative[1] === "明天" ? 1 : relative[1] === "后天" ? 2 : relative[1] === "大后天" ? 3 : 0;
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
     dueDate = toDateString(d);
   }

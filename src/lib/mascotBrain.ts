@@ -483,11 +483,34 @@ export function isGrantDeleteIntent(raw: string): boolean {
 }
 
 /** 判断用户回复是否是针对待确认删除的"是/否"，返回确认方向或 null */
+/**
+ * 判断用户对"要不要执行"的回复。
+ *
+ * v3.9.14 🔴 修误删（独立审查发现的真 bug，最危险的一类）：
+ * 原来的 yes 正则**不锚定全句**，只要以"好/对/嗯"开头就算确认：
+ *   「好的，先别删」→ yes:true → **任务被删了**
+ *   「好，不用了」  → yes:true
+ *   「对，不过先等等」→ yes:true
+ * 而且否定词检查放在 yes 之后，永远轮不到。
+ *
+ * 现在：① 先查否定（"别/不用/不要/先不/等等"等一律算否定，优先于肯定）
+ *      ② yes 必须**整句**就是肯定词（允许尾部标点），不接受"好 + 一堆别的话"
+ */
 export function readConfirm(raw: string): { yes: boolean } | null {
-  const yes = /^(是的?|是|确定|确认|删|删吧|好|好的|行|可以|去吧|嗯|对)/.test(raw.trim());
-  const no = /^(不|不要|别|取消|算了|等等|先不了|嗯?不)/.test(raw.trim());
-  if (yes) return { yes: true };
-  if (no) return { yes: false };
+  const t = raw.trim();
+  // ① 否定优先：出现任何"别/不用/不要/先不/等等/取消/算了/**不过**"等 → 一律算否
+  // 注意：不需要前面的分隔符 —— "对，不过先等等" 里"不过"紧跟在逗号后，
+  // 而"不过"本身已经是明确的转折（等于否决前面那句）。
+  const NEG = /别|不用|不要|不删|不记|不改|取消|算了|等等|等会|等一下|先不|暂时不|回头再|以后再说|不过|先缓缓|再说吧/;
+  if (NEG.test(t)) return { yes: false };
+
+  // ② 肯定：必须**整句**为肯定词（末尾可以有标点），不接受"好的，先别删"这类混合句
+  const YES_FULL = /^(?:是的?|是|确定|确认|删|删吧|好|好的|行|可以|去吧|嗯|对|ok|OK|Ok)[。.!！~～\s]*$/;
+  if (YES_FULL.test(t)) return { yes: true };
+
+  const NO_FULL = /^(?:不|不要|别|取消|算了|先不|不了|no|No|NO)[。.!！~～\s]*$/;
+  if (NO_FULL.test(t)) return { yes: false };
+
   return null;
 }
 

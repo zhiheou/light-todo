@@ -30,7 +30,58 @@ const path = require("path");
 app.disableHardwareAcceleration(); // 防透明窗口黑底
 app.commandLine.appendSwitch("enable-transparent-visuals");
 
-const APP_URL = process.env.LIGHT_TODO_URL || "https://todo.aebuiyke.xyz";
+/**
+ * v3.9.14 单实例锁（Windows 常驻软件的标准做法）。
+ *
+ * 不加会出大问题：用户重复双击图标 → 起多个实例 → **多个全屏透明窗层层叠在一起**，
+ * 每个都独立做鼠标接管判定，互相打架 → 表现就是"点不动、点的不是这一个"。
+ * （用户反馈里"右键没反应、点到下面的东西"很可能有这一份贡献。）
+ * 第二个实例直接把已有窗口唤到前面，然后退出。
+ */
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    // 用户又双击了图标 → 把主窗口叫到前面来（而不是再开一个）
+    if (mainWin && !mainWin.isDestroyed()) {
+      if (mainWin.isMinimized()) mainWin.restore();
+      mainWin.show();
+      mainWin.focus();
+    } else if (typeof createMainWindow === "function") {
+      createMainWindow();
+    }
+  });
+}
+
+/**
+ * v3.9.14 🔴 给 URL 加"每次启动都不同"的参数，绕过 Electron 的顽固缓存。
+ *
+ * 踩过的大坑（用户报"怎么又产生新 bug / 还是一堆 bug"的**总根源**）：
+ * 桌面版加载的是**线上站点**，改动部署后用户那边理应自动生效 ——
+ * 但 Electron 会把页面缓存到本地（partitions/lighttodo/Cache），
+ * 实测用户程序里跑的还是好几轮之前的 `index-wjOoaO5e.js`，
+ * 而我早就部署到 `index-C8JfDeqE.js` 了。
+ * → **用户看到的永远是旧版本，我这边怎么修都没用**（这就是"改了没反应"的真相）。
+ *
+ * 这里用构建时间戳做参数，保证每次启动都是**唯一的 URL** → 缓存必然失效。
+ * 前端 JS/CSS 用内容哈希命名，不变的内容仍然命中缓存，不会浪费流量。
+ */
+const BOOT_ID = Date.now().toString(36);
+
+function withCacheBuster(url) {
+  return `${url}${url.includes("?") ? "&" : "?"}_v=${BOOT_ID}`;
+}
+
+/**
+ * 🔴 v3.9.14 教训：**不要**在这里调 `session.clearCache()`。
+ *
+ * 我试过在启动时清一次页面缓存（想彻底根治"加载到旧前端"的问题），
+ * 结果实测**程序起来后建不出窗口**（进程活着、但什么都没有）——
+ * 清缓存与窗口创建存在时序冲突。
+ * 防缓存改用更安全的办法：URL 上加 `_v=<启动时间戳>`（见 withCacheBuster），
+ * 每次启动都是唯一 URL → 缓存必然失效，且对前端 JS/CSS 的内容哈希缓存无影响。
+ */
 
 let petWin = null;
 let mainWin = null;
@@ -59,13 +110,19 @@ function injectDisplayMetrics(target) {
 /** 当前鼠标所在的显示器（桌宠跟着用户走，多屏不出错） */
 function displayForPet() {
   try {
-    // getCursorScreenPoint 返回物理像素，getDisplayNearestPoint 按 DIP 判定；
-    // 混合 DPI 多屏下必须先换算，否则可能选中错误的显示器（桌宠"跟随鼠标"会跳错屏）
-    const pt = screen.getCursorScreenPoint();
-    const rough = screen.getDisplayNearestPoint(pt);
-    const s = rough.scaleFactor || 1;
-    const dip = { x: Math.round(pt.x / s), y: Math.round(pt.y / s) };
-    return screen.getDisplayNearestPoint(dip);
+    /**
+     * v3.9.14 🔴 修坐标单位错误（独立审查发现的真 bug）。
+     *
+     * Electron 官方文档明确写着：`screen.getCursorScreenPoint()`
+     * **"The return value is a DIP point, not a screen physical point."**
+     * 而 `getDisplayNearestPoint` / `getPosition` / `getBounds` 用的也都是 DIP。
+     * 三者同单位 → **不该再除以 scaleFactor**。
+     *
+     * 之前这里除以了缩放比，导致：125%/150% 缩放的机器上（笔记本出厂默认就是这个）
+     * 判定点整体偏移最多几百像素 → "看得见宠物却点不中"、
+     * 而宠物旁边的空白反而被接管（点不到桌面）。
+     */
+    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   } catch {
     return screen.getPrimaryDisplay();
   }
@@ -134,7 +191,7 @@ function createPetWindow() {
   // Electron 的 forward:true 在浏览器内部链上会截断，页面收不到 mousemove → 永远解不开穿透）
   petWin.setIgnoreMouseEvents(true, { forward: true });
 
-  petWin.loadURL(`${APP_URL}/?desktop=pet&mode=work`);
+  petWin.loadURL(withCacheBuster(`${APP_URL}/?desktop=pet&mode=work`));
 
   petWin.webContents.on("did-finish-load", () => {
     petWin.webContents
@@ -160,6 +217,20 @@ function createPetWindow() {
 /** 主窗口（普通窗口）要带上 ?pet=off：桌面版里只让全屏桌宠窗渲染宠物，避免墙纸/坐标错位 */
 function mainWindowUrl() {
   return `${APP_URL}${APP_URL.includes("?") ? "&" : "?"}pet=off`;
+}
+
+/**
+ * v3.9.14 🔴 补回丢失的 hideMainWindow（独立审查发现的真 bug）。
+ *
+ * 之前托盘左键和"关闭主窗口"菜单项都调用它，但**函数定义不知何时被删掉了** →
+ * 点了就抛 ReferenceError → 用户看到"点了没反应"。
+ * （`node --check` 只查语法不查未定义变量，所以打包不会报错，一路进了安装包。）
+ */
+function hideMainWindow() {
+  if (mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) {
+    mainWin.hide();
+    refreshTrayMenu(); // 菜单第一项要变回"打开主窗口"
+  }
 }
 
 /**
@@ -210,7 +281,7 @@ function createMainWindow() {
     },
   });
   mainWin.setMenuBarVisibility(false);
-  mainWin.loadURL(mainWindowUrl());
+  mainWin.loadURL(withCacheBuster(mainWindowUrl()));
   mainWin.once("ready-to-show", () => refreshTrayMenu());
 
   // 关主窗口 = 只隐藏（桌宠继续在）
@@ -327,8 +398,12 @@ function installUpdateNow() {
 // 那会让整块屏幕都抢鼠标、什么都点不中。所以必须由页面上报宠物的真实矩形，
 // 没收到上报之前一律保持穿透（安全默认）。
 let hoverTimer = null;
-/** 宠物实际占用的区域（相对窗口 CSS 像素），由页面通过 pet-hitbox 上报 */
-let petHitbox = null;
+/**
+ * v3.9.14：可交互区域改为**矩形列表**（不再是一个合并的包围盒）。
+ * 合并会把两个矩形之间的大片空白也算进去 → 那一片点不到桌面。
+ * 现在主进程逐个矩形判定"鼠标落在其中任一矩形内"才算命中。
+ */
+let petHitboxes = null;
 /** v3.9.12 拖动/飞行期间是否"钉住"接管（钉住时轮询不再改动穿透状态） */
 let takeoverLocked = false;
 /** 当前是否处于"忽略鼠标"（穿透）状态 —— 提升到模块作用域，供 pet-takeover 复用 */
@@ -368,16 +443,26 @@ function startPetHoverWatch() {
       }
       return;
     }
-    const display = displayForPet();
-    const scale = display.scaleFactor || 1;
-    const { x: mx, y: my } = screen.getCursorScreenPoint(); // 物理像素
-    const [wx, wy] = petWin.getPosition(); // DIP（CSS 像素）
-    // 换算到窗口坐标系：高分屏下不除 scale，命中区域会整体偏掉
-    const rx = mx / scale - wx;
-    const ry = my / scale - wy;
-    // 命中判定：只认页面上报的矩形；没上报 → 不接管（全屏窗口绝不能兜底成全屏可点）
-    const hb = petHitbox;
-    const inside = !!hb && rx >= hb.x && rx <= hb.x + hb.w && ry >= hb.y && ry <= hb.y + hb.h;
+    // v3.9.14 🔴 修坐标单位错误：getCursorScreenPoint() 返回的**就是 DIP**
+    // （Electron 官方文档原文："The return value is a DIP point, not a screen physical point."），
+    // 与 getPosition()/getBounds() 同单位，**不需要也不应该再除以 scaleFactor**。
+    // 之前除了缩放比，导致 125%/150% 缩放的机器上判定区域整体偏移几百像素：
+    // 看得见宠物却点不中，而宠物旁边的空白反被接管（点不到桌面图标）。
+    const rx = mx - wx;
+    const ry = my - wy;
+    const scale = display.scaleFactor || 1; // 仅供调试输出/其它逻辑参考，不参与坐标换算
+    // 命中判定：逐个矩形判断（**不合并包围盒** —— 合并会把两个矩形之间的大片空白
+    // 也算成可交互区，导致那一片点不到桌面图标）。
+    // 没收到上报 → 不接管（全屏窗口绝不能兜底成全屏可点）。
+    let inside = false;
+    if (petHitboxes) {
+      for (const hb of petHitboxes) {
+        if (rx >= hb.x && rx <= hb.x + hb.w && ry >= hb.y && ry <= hb.y + hb.h) {
+          inside = true;
+          break;
+        }
+      }
+    }
     if (inside && ignoreState) {
       ignoreState = false;
       petWin.setIgnoreMouseEvents(false);
@@ -402,7 +487,7 @@ function startPetHoverWatch() {
 ipcMain.on("pet-ignore", (_e, ignore) => {
   if (!petWin) return;
   if (takeoverLocked) return; // 拖动/飞行中：钉住接管，任何穿透请求都不受理
-  if (petHitbox) return; // 已被轮询接管，忽略页面侧的过时判定
+  if (petHitboxes) return; // 已被轮询接管，忽略页面侧的过时判定
   if (typeof ignore === "boolean") petWin.setIgnoreMouseEvents(ignore, { forward: true });
 });
 
@@ -448,16 +533,64 @@ ipcMain.on("pet-mouse-held", (_e, held) => {
 });
 
 ipcMain.on("pet-hitbox", (_e, box) => {
-  // 页面上报"宠物 + 展开的聊天面板"的实际矩形（窗口 CSS 像素坐标）。
-  // 传 null 表示暂时没有可交互区域（例如宠物被隐藏）→ 整窗穿透。
+  /**
+   * v3.9.14：可交互区域上报。**必须同时兼容新旧两种格式** ——
+   * 前端会自动更新（加载线上站点），但桌面外壳装在用户电脑上、不会自动更新。
+   * 曾经因为只认数组，导致旧外壳收到后解析失败 → hitbox 永远为空 → 永远穿透 → 用户"完全点不动"。
+   *
+   * 支持的格式：
+   *   - { rects: [...] }  ← 新格式（优先，逐个矩形精确判定，无死区）
+   *   - { x,y,w,h }       ← 旧格式（单个包围盒）
+   *   - [...]             ← 纯数组（过渡格式，兼容）
+   *   - null              ← 清空
+   */
   if (box === null) {
-    petHitbox = null;
+    petHitboxes = null;
     return;
   }
-  if (box && typeof box.x === "number" && typeof box.w === "number") petHitbox = box;
+  // v3.9.14 参数校验：限制在合理范围内（防止页面被入侵后上报超大矩形把整屏"接管"）
+  const valid = (b) =>
+    b &&
+    typeof b.x === "number" &&
+    typeof b.y === "number" &&
+    typeof b.w === "number" &&
+    typeof b.h === "number" &&
+    Number.isFinite(b.x) &&
+    Number.isFinite(b.y) &&
+    Number.isFinite(b.w) &&
+    Number.isFinite(b.h) &&
+    b.w > 0 &&
+    b.h > 0 &&
+    b.w <= 20000 &&
+    b.h <= 20000 &&
+    Math.abs(b.x) <= 20000 &&
+    Math.abs(b.y) <= 20000;
+
+  if (Array.isArray(box)) {
+    const list = box.filter(valid);
+    petHitboxes = list.length ? list : null;
+    return;
+  }
+  if (box && Array.isArray(box.rects)) {
+    const list = box.rects.filter(valid);
+    petHitboxes = list.length ? list : valid(box) ? [{ x: box.x, y: box.y, w: box.w, h: box.h }] : null;
+    return;
+  }
+  if (valid(box)) {
+    petHitboxes = [{ x: box.x, y: box.y, w: box.w, h: box.h }];
+  }
 });
-ipcMain.on("pet-move", (_e, { dx, dy }) => {
+ipcMain.on("pet-move", (_e, arg) => {
+  /**
+   * v3.9.14 参数校验（独立安全审查）。
+   * 原先用 `(_e, {dx,dy}) =>` 解构：页面发一个不带参数的 pet-move 会抛 TypeError；
+   * 且 dx/dy 无范围限制，`{dx:1e9}` 能把全屏窗移到屏幕外（桌宠"消失"）。
+   */
   if (!petWin) return;
+  const dx = Number(arg?.dx);
+  const dy = Number(arg?.dy);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+  if (Math.abs(dx) > 10000 || Math.abs(dy) > 10000) return; // 单次位移不可能这么大
   const [x, y] = petWin.getPosition();
   petWin.setPosition(Math.round(x + dx), Math.round(y + dy));
 });
@@ -626,6 +759,22 @@ setTimeout(() => {
 
 // ---------- 生命周期 ----------
 app.whenReady().then(() => {
+  /**
+   * v3.9.14 安全加固（独立安全审查建议）：**拒绝一切浏览器权限请求**。
+   *
+   * Electron 默认是"自动批准"麦克风/摄像头/通知/地理位置等请求。
+   * 这个应用用不到其中任何一个，而它加载的是远程网页 ——
+   * 万一网站被入侵，对方就能悄悄打开你的摄像头/麦克风，而用户只看到一个小图标。
+   * 这里一律拒绝，合法功能不受影响。
+   */
+  try {
+    const ses = require("electron").session.fromPartition("persist:lighttodo");
+    ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+    ses.setPermissionCheckHandler(() => false);
+  } catch {
+    /* 拿不到 session 也不影响主流程 */
+  }
+
   createPetWindow(); // 桌宠先起来（页面报登录态后再决定显示/弹登录窗）
   createTray();
   initAutoUpdate(); // v3.9.8 自动更新：启动后静默检查新版本

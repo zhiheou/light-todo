@@ -230,6 +230,29 @@ export default function MascotAssistant({
   /** 桌宠当前位置（聊天气泡跟随） */
   const [petPos, setPetPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  /** v3.9.14：「召回轻宜」按钮（宠物隐藏时显示）—— 也要登记可点击区域 */
+  const summonRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * v3.9.14 🔴 「召回」按钮的可点击区域登记。
+   * 漏登记的后果与右键菜单一样：按钮看得见、点下去事件却穿透到桌面 → "点了没反应"。
+   */
+  useEffect(() => {
+    if (!petHidden) {
+      registerHitArea("summon", null);
+      return;
+    }
+    const id = window.requestAnimationFrame(() => {
+      const el = summonRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      registerHitArea("summon", { x: r.x, y: r.y, w: r.width, h: r.height });
+    });
+    return () => {
+      window.cancelAnimationFrame(id);
+      registerHitArea("summon", null);
+    };
+  }, [petHidden]);
 
   /**
    * v3.9.4 桌面版：面板开合要通知主进程（打开时窗口需放大到装得下 340px 面板，
@@ -853,6 +876,11 @@ export default function MascotAssistant({
       {petHidden && (
         <button
           type="button"
+          /**
+           * v3.9.14 🔴 用 ref 登记可点击区域 —— 之前**漏登记**了，导致这个按钮点了没反应
+           * （鼠标事件穿透到桌面）。和之前"右键菜单漏登记"是同一类错误。
+           */
+          ref={summonRef}
           className={`pet-summon mascot-${mode}`}
           onClick={() => setPetHidden(false)}
           title="让轻宜回来"

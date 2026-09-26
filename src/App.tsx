@@ -452,6 +452,14 @@ export default function App() {
         void requestPersonal();
         return;
       }
+      /**
+       * v3.9.14 🔴 补上"本地编辑时间"打点（独立审查发现的数据丢失 bug）。
+       *
+       * 这是**唯一**漏打的写操作（addTask/updateTask/deleteMemo 等都打了）。
+       * 不打点的后果：刚写完备忘马上刷新页面 → 云端拉取时"防覆盖闸门"认不出本地更新 →
+       * **用云端旧数据把它抹掉**，用户刚记的东西直接消失。
+       */
+      lastLocalEdit.current = Date.now();
       const memo = makeMemo({ text: raw, ...(tags && tags.length > 0 ? { tags } : {}) });
       if (mode === "work") setWorkMemos((prev) => [memo, ...prev]);
       else setPersonalMemos((prev) => [memo, ...prev]);
@@ -896,6 +904,36 @@ export default function App() {
     localStorage.removeItem("lighttodo:work-memos:v1");
     localStorage.removeItem("lighttodo:work-dimensions:v1");
     localStorage.removeItem("lighttodo:work-goals:v1");
+    /**
+     * v3.9.14 🔴 补齐登出清理（独立安全审查发现的真 bug）。
+     *
+     * 之前只清了上面 4 个数据键，漏了下面这些 —— 后果是**换账号会串号**：
+     *  - 桌宠聊天记录：B 登录后打开聊天面板，看到的是 A 和桌宠的**对话原文**
+     *  - 学习日志：A 说过的"没答好"的句子（含原文）被 B 看到
+     *  - 本机访问码 / 助手能力档位 / 皮肤等偏好：全部沿用到下一个账号
+     *
+     * 这些键都是 `lighttodo:` 前缀，逐个删容易再漏，所以：
+     *  ① 显式删除已知的敏感键（聊天/学习日志/访问码）
+     *  ② 兜底扫描：把其余 `lighttodo:` 开头的**本机偏好键**也清掉
+     *     （保留主题设置这类纯外观项，用户换号后不该被重置）
+     */
+    localStorage.removeItem("lighttodo:mascot-chat:v1:work");
+    localStorage.removeItem("lighttodo:mascot-chat:v1:personal");
+    localStorage.removeItem("lighttodo:mascot-learn:v1");
+    localStorage.removeItem("lighttodo:mascot-memory:v1:work");
+    localStorage.removeItem("lighttodo:mascot-memory:v1:personal");
+    localStorage.removeItem("lighttodo:personal-lock:v1");
+    // 兜底：其余本机状态（能力档位/确认开关/上传开关/皮肤/位置等）一并清掉，
+    // 只保留主题偏好（纯外观，与账号无关）
+    try {
+      const keep = new Set(["lighttodo:theme:v1"]);
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("lighttodo:") && !keep.has(k)) localStorage.removeItem(k);
+      }
+    } catch {
+      /* 隐私模式等，忽略 */
+    }
     setAccount(null);
     setAccountKeySalt("");
     setAccountPassword("");

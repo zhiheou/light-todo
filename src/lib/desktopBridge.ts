@@ -19,7 +19,7 @@ interface PetAPI {
   closeMainWindow: () => void;
   setPetSize: (px: number) => void;
   reportLogin: (loggedIn: boolean) => void;
-  setHitbox?: (r: { x: number; y: number; w: number; h: number } | null) => void;
+  setHitbox?: (r: HitRect[] | null) => void;
   setChatOpen?: (open: boolean) => void;
   getAutoLaunch: () => Promise<boolean>;
   setAutoLaunch: (on: boolean) => Promise<boolean>;
@@ -74,6 +74,9 @@ export function reportLoginState(loggedIn: boolean): void {
  */
 type Rect = { x: number; y: number; w: number; h: number };
 
+/** v3.9.14：主进程按这个格式接收"可交互矩形列表"（逐个精确判定，不合并包围盒） */
+export type HitRect = Rect;
+
 /** 已登记的可交互区域（key = 来源 id） */
 const hitAreas = new Map<string, Rect>();
 /** 有变化时上报一次（避免每次 pointermove 都发 IPC） */
@@ -89,22 +92,44 @@ function flushHitAreas(): void {
     }
     return;
   }
-  // 合并成一个包围盒（矩形并集）
-  let x1 = Infinity;
-  let y1 = Infinity;
-  let x2 = -Infinity;
-  let y2 = -Infinity;
-  for (const r of hitAreas.values()) {
-    x1 = Math.min(x1, r.x);
-    y1 = Math.min(y1, r.y);
-    x2 = Math.max(x2, r.x + r.w);
-    y2 = Math.max(y2, r.y + r.h);
-  }
-  const merged = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-  const key = `${Math.round(x1)},${Math.round(y1)},${Math.round(x2)},${Math.round(y2)}`;
-  if (key === lastSent) return; // 没变就不发
+  const list: HitRect[] = [...hitAreas.values()].map((r) => ({
+    x: Math.round(r.x),
+    y: Math.round(r.y),
+    w: Math.round(r.w),
+    h: Math.round(r.h),
+  }));
+  /**
+   * v3.9.14 🔴 兼容格式：**同一个对象里同时带包围盒和矩形列表**。
+   *
+   * 血泪教训（用户报"完全点不动、拖不动"的根因）：
+   * 前端会自动更新（加载线上站点），但**桌面外壳（main.js）装在用户电脑上、不会自动更新**。
+   * 我一度把这里改成只发**数组**，而用户装的旧外壳只认 `{x,y,w,h}` 对象 →
+   * 它读到的是 undefined → hitbox 永远为空 → **永远穿透 → 完全点不动**。
+   *
+   * 所以协议必须**双向兼容**：
+   *  - 顶层 x/y/w/h：旧外壳用（能跑，只是两矩形之间那片空白也会被接管）
+   *  - rects 数组：新外壳优先用（逐个矩形精确判定，没有死区）
+   *  - single 标记：告诉外壳"只有一个矩形，直接用包围盒即可"
+   *
+   * 以后**任何时候改这个协议，都必须保留旧字段**，否则老用户会立刻"点不动"。
+   */
+  const bbox = list.reduce(
+    (acc, r) => ({
+      x: Math.min(acc.x, r.x),
+      y: Math.min(acc.y, r.y),
+      w: Math.max(acc.x + acc.w, r.x + r.w) - Math.min(acc.x, r.x),
+      h: Math.max(acc.y + acc.h, r.y + r.h) - Math.min(acc.y, r.y),
+    }),
+    { x: list[0].x, y: list[0].y, w: list[0].w, h: list[0].h },
+  );
+  const payload = {
+    x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h, // 旧外壳读这四个字段
+    rects: list,                                 // 新外壳优先读这个
+  };
+  const key = list.map((r) => `${r.x},${r.y},${r.w},${r.h}`).sort().join("|");
+  if (key === lastSent) return;
   lastSent = key;
-  api.setHitbox(merged);
+  api.setHitbox(payload as unknown as HitRect[]);
 }
 
 /**
@@ -125,11 +150,12 @@ export function startMouseHeldWatch(): void {
   const api = petAPI();
   if (!api?.reportMouseHeld) return;
 
-  const heldKeys = new Set<number>();
   let releaseTimer: number | null = null;
+  let lastSentHeld: boolean | null = null;
 
-  const sync = () => {
-    const held = heldKeys.size > 0;
+  const sync = (held: boolean) => {
+    if (held === lastSentHeld) return;
+    lastSentHeld = held;
     try {
       api.reportMouseHeld?.(held);
     } catch {
@@ -137,35 +163,47 @@ export function startMouseHeldWatch(): void {
     }
   };
 
-  const onDown = (e: PointerEvent) => {
+  /**
+   * v3.9.14 🔴 用 `e.buttons` 位掩码，不用 Set 记 `e.button`。
+   *
+   * 独立审查发现的真 bug：按 Pointer Events 规范，
+   * `pointerdown` **只在第一个按键按下时**触发（后续按键只发 pointermove），
+   * `pointerup` **只在最后一个按键释放时**触发，且 `e.button` 是"这一个"而不是"全部"。
+   * 于是"按住左键 → 再按右键 → 先松左键 → 后松右键"会让集合里永远剩下一个键 →
+   * `mouseHeld` 永久为 true → **整块屏幕都不再穿透**（桌面图标全点不动，只能重启程序）。
+   *
+   * `e.buttons` 是**当前所有按下键的位掩码**，天然规避顺序问题：
+   * 只要它变成 0，就说明真的全松开了。
+   */
+  const onPointer = (e: PointerEvent) => {
+    const held = (e.buttons ?? 0) !== 0;
+    if (held) {
+      if (releaseTimer !== null) {
+        window.clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
+      sync(true);
+      return;
+    }
+    // 全部松开：延迟一小段再解除，覆盖 click / contextmenu 等后续事件
+    if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+    releaseTimer = window.setTimeout(() => {
+      releaseTimer = null;
+      sync(false);
+    }, 450);
+  };
+
+  window.addEventListener("pointerdown", onPointer, true);
+  window.addEventListener("pointermove", onPointer, true); // 关键：多键时只有 move 事件能反映最新 buttons
+  window.addEventListener("pointerup", onPointer, true);
+  window.addEventListener("pointercancel", onPointer, true);
+  // 兜底：窗口失焦 / 鼠标离开窗口时强制清空（避免按键状态卡住导致永远接管）
+  window.addEventListener("blur", () => {
     if (releaseTimer !== null) {
       window.clearTimeout(releaseTimer);
       releaseTimer = null;
     }
-    heldKeys.add(e.button ?? 0);
-    sync();
-  };
-  const onUp = (e: PointerEvent) => {
-    heldKeys.delete(e.button ?? 0);
-    if (heldKeys.size > 0) {
-      sync();
-      return;
-    }
-    // 松手后延迟一小段再解除，覆盖 click / contextmenu 等后续事件
-    if (releaseTimer !== null) window.clearTimeout(releaseTimer);
-    releaseTimer = window.setTimeout(() => {
-      releaseTimer = null;
-      sync();
-    }, 450);
-  };
-
-  window.addEventListener("pointerdown", onDown, true);
-  window.addEventListener("pointerup", onUp, true);
-  window.addEventListener("pointercancel", onUp, true);
-  // 兜底：窗口失焦时清空（避免按键状态卡住导致永远接管）
-  window.addEventListener("blur", () => {
-    heldKeys.clear();
-    sync();
+    sync(false);
   });
 }
 
@@ -221,6 +259,19 @@ export function registerHitArea(id: string, rect: Rect | null): void {
 export function clearHitAreas(): void {
   hitAreas.clear();
   flushHitAreas();
+}
+
+/**
+ * 某个点是否落在任一已登记的可交互矩形内。
+ *
+ * v3.9.14：与主进程的判定逻辑保持一致（主进程也是逐个矩形判断，**不合并包围盒**）。
+ * 用于测试与页面侧的调试；主进程有自己的等价实现（desktop/main.js 的 startPetHoverWatch）。
+ */
+export function isPointInHitAreas(x: number, y: number): boolean {
+  for (const r of hitAreas.values()) {
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return true;
+  }
+  return false;
 }
 
 /** 通知主进程聊天面板开/关（打开时窗口需放大，否则面板被裁掉） */
