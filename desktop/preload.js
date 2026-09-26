@@ -1,7 +1,12 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 /**
- * 桌面版桥接层：只暴露必要能力给页面（安全：不开 nodeIntegration）
+ * 屏幕参数：主进程用 executeJavaScript 写进页面的 window.petDisplay，页面直接读。
+ *
+ * 为什么不用 webContents.send + ipcRenderer.on：实测那条路在这套配置下收不到，
+ * 页面读到的仍是窗口宽度（160）而非屏幕宽度（2560），自适应退化成固定小尺寸。
+ * 也不要在这里用 contextBridge 暴露 getter 转发 —— contextBridge 会把对象冻结成
+ * 静态快照，getter 求值一次就固定了，换显示器/改缩放不会更新。
  */
 contextBridge.exposeInMainWorld("petAPI", {
   /** 切换鼠标穿透：true=穿透（不挡其他程序），false=接管鼠标（可点宠物） */

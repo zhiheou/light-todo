@@ -32,11 +32,27 @@ export interface PetShellProps {
   onPosition?: (r: { x: number; y: number; w: number; h: number }) => void;
 }
 
-const PX: Record<"s" | "m" | "l", number> = { s: 56, m: 76, l: 104 };
+/** s/m/l 相对"大"的比例（0.72 / 0.95 / 1） */
+const SIZE_RATIO: Record<"s" | "m" | "l", number> = { s: 0.72, m: 0.95, l: 1 };
 
 /**
- * 桌面版（Electron）：宠物跑在一个 140px 的小窗口里，window.innerWidth 是**窗口**宽度而非屏幕宽度。
- * 用它算尺寸会得到 39px（几乎看不见）。改读主进程从 screen.getPrimaryDisplay() 注入的真实屏幕参数。
+ * 目标边长 = 屏幕宽 ÷ 15，夹在 [88, 128]。
+ * 为什么要夹：下限保证手机/小窗上点得中，上限保证 4K 大屏上不会变成一只占半屏的怪物。
+ *
+ * 实测取值（l 档）：
+ *   1280 小笔记本 → 88（触底）  1366 常见笔记本 → 91
+ *   1440 MacBook  → 96          1536 缩放笔记本 → 102
+ *   1680 → 112                  1920 台式 → 128
+ *   2560 / 4K     → 128（封顶）
+ * 这样笔记本与台式**确实不同**，符合"不能显示同样大小"的要求。
+ */
+const PET_MIN = 88;
+const PET_MAX = 128;
+
+/**
+ * 桌面版（Electron）：宠物跑在一个小窗口里，window.innerWidth 是**窗口**宽度而非屏幕宽度，
+ * 用它算会得到 88px 这种触底值。改读主进程用 executeJavaScript 写进页面的 window.petDisplay。
+ * 网页版没有这个对象 → 退回窗口尺寸（正是我们想要的：网页版宠物就该随窗口缩放）。
  */
 interface DisplayMetrics {
   width: number; // 屏幕工作区宽（CSS 像素）
@@ -45,25 +61,22 @@ interface DisplayMetrics {
 }
 
 function getDisplayMetrics(): DisplayMetrics {
-  const dm = (window as unknown as { petDisplay?: DisplayMetrics }).petDisplay;
-  if (dm && typeof dm.width === "number" && dm.width > 0) return dm;
+  const direct = (window as unknown as { petDisplay?: DisplayMetrics }).petDisplay;
+  if (direct && typeof direct.width === "number" && direct.width > 0) return direct;
   return { width: window.innerWidth, height: window.innerHeight, scaleFactor: window.devicePixelRatio || 1 };
 }
 
 /**
- * 尺寸随设备自适应（窗口版 + 桌面版共用同一套算法）：
- *  目标 = 屏幕宽 9%，但夹在 [64, 104] 之间；再按 s/m/l 比例缩放。
- *  笔记本 1440 → 104（封顶）；台式 1920 → 104；超大屏 2560 → 104（封顶，不失控）；
- *  小笔记本 1280 → 104；平板 768 → 69；手机 390 → 64（保底，别小到点不中）。
- *  高分屏不需要额外补偿：CSS 像素本身就按缩放比归一，直接乘反而会翻倍变大。
- *  桌面版窗口由主进程按这里返回的值 + 屏幕缩放一起 resize（见 main.js syncPetWindowSize）。
+ * 尺寸随设备自适应（网页版 + 桌面版共用同一套算法）：
+ *  屏幕大 → 宠物大，屏幕小 → 宠物小；再叠加用户选的 s/m/l 档位。
+ *  高分屏不需要补偿：CSS 像素本身按缩放比归一，再乘一次反而会翻倍变大。
+ *  桌面版窗口由主进程按上报值 resize（见 main.js 的 pet-set-size 处理）。
  */
 export function responsivePx(size: "s" | "m" | "l"): number {
-  const base = PX[size] ?? PX.l;
-  const ratio = base / PX.l; // 相对 L
+  const ratio = SIZE_RATIO[size] ?? SIZE_RATIO.l;
   const { width } = getDisplayMetrics();
-  const targetL = Math.min(PX.l, Math.max(64, width * 0.09));
-  return Math.round(targetL * ratio);
+  const baseL = Math.min(PET_MAX, Math.max(PET_MIN, width / 15));
+  return Math.round(baseL * ratio);
 }
 
 export default function PetShell({

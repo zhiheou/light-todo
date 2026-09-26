@@ -40,8 +40,27 @@ let tray = null;
 let quitting = false;
 /** 页面算好的宠物边长（CSS 像素），窗口 = 它 + PET_PADDING */
 let petSize = PET_FALLBACK;
+/** 窗口是否已按页面报来的尺寸定过位（首次必须应用，不能用"值没变"跳过） */
+let petSizeApplied = false;
+/** 是否已确认登录（用于忽略重复上报，见 login-state 处理器） */
+let hasLoggedIn = false;
 
-// ---------- 小工具 ----------
+// 屏幕参数注入：用 executeJavaScript 直接写进页面的 window。
+//
+// 为什么不用 webContents.send + preload 的 ipcRenderer.on：
+// 实测那条路在这套配置下收不到（页面读到的仍是窗口宽度 160 而非屏幕 2560），
+// 而 executeJavaScript 是主进程→渲染进程最可靠的通道，且能在 did-finish-load 后立刻生效。
+// 页面侧 PetShell 通过 pet-display 自定义事件感知变化。
+function injectDisplayMetrics(target) {
+  if (!target || target.isDestroyed()) return;
+  const m = displayMetrics(displayForPet());
+  target.webContents
+    .executeJavaScript(
+      `window.petDisplay = ${JSON.stringify(m)};
+       window.dispatchEvent(new CustomEvent('pet-display'));`,
+    )
+    .catch(() => {});
+}
 /** 当前鼠标所在的显示器（桌宠跟着用户走，多屏不出错） */
 function displayForPet() {
   try {
@@ -119,8 +138,8 @@ function createPetWindow() {
          document.body.style.background='transparent';`,
       )
       .catch(() => {});
-    // 注入屏幕参数：页面据此算自适应尺寸（窗口只有 140px，不能拿窗口宽度当屏幕宽度）
-    petWin.webContents.send("pet-display", displayMetrics(displayForPet()));
+    // 注入屏幕参数：页面据此算自适应尺寸（窗口只有 160px，不能拿窗口宽度当屏幕宽度）
+    injectDisplayMetrics(petWin);
   });
 
   petWin.on("closed", () => {
@@ -137,7 +156,8 @@ function applyPetSize() {
   const display = displayForPet();
   const geo = petWindowGeometry(display);
   petWin.setBounds({ x: geo.x, y: geo.y, width: geo.width, height: geo.height });
-  petWin.webContents.send("pet-display", displayMetrics(display));
+  petSizeApplied = true;
+  injectDisplayMetrics(petWin);
 }
 
 // ---------- 主窗口（正常待办界面） ----------
@@ -255,7 +275,9 @@ ipcMain.on("pet-move", (_e, { dx, dy }) => {
 ipcMain.on("pet-set-size", (_e, px) => {
   if (typeof px !== "number" || !isFinite(px) || px <= 0) return;
   const clamped = Math.max(40, Math.min(220, Math.round(px)));
-  if (clamped === petSize) return; // 没变就别 resize（避免每次渲染抖动）
+  // 首次必须应用（初值是 PET_FALLBACK，若页面恰好算出同值会被"没变就跳过"漏掉定位）；
+  // 之后仅在真的变了才 resize，避免每次渲染抖动
+  if (clamped === petSize && petSizeApplied) return;
   petSize = clamped;
   applyPetSize();
 });
@@ -264,15 +286,21 @@ ipcMain.on("close-main-window", () => hideMainWindow());
 ipcMain.on("open-main-window", () => createMainWindow());
 
 // 页面回报登录态：决定"直接显示桌宠"还是"先开主窗口登录"
-// 注意：页面在"有本机会话"时会先乐观报 true（桌宠秒出现，体感"打开就是桌宠"），
-// 若随后校验失败会补报 false → 这里必须处理"已显示桌宠后又报 false"的情况，
-// 不能像早期版本那样"只认第一次"，否则会话失效的用户会卡在空桌宠、看不到登录窗。
+//
+// 三种时序都要对（踩过的坑，别改回去）：
+//  1. 未登录（首次安装）→ 页面报 false → 收起桌宠 + 弹登录窗
+//  2. 已登录但会话失效 → 页面先乐观报 true（桌宠秒出现），校验失败后补报 false
+//     → 必须响应"第二次的 false"，否则用户卡在一只没数据的桌宠上、看不到登录窗
+//  3. 已登录有效 → 只报 true → 桌宠显示，不弹主窗口
 ipcMain.on("login-state", (_e, loggedIn) => {
   if (loggedIn) {
+    if (hasLoggedIn) return; // 已确认登录，忽略重复上报（避免登出瞬间的乱序把登录窗顶掉）
+    hasLoggedIn = true;
     if (petWin && !petWin.isDestroyed() && !petWin.isVisible()) petWin.show();
     return;
   }
   // 未登录 / 会话失效：收起桌宠，弹登录窗口
+  hasLoggedIn = false;
   if (petWin && !petWin.isDestroyed() && petWin.isVisible()) petWin.hide();
   if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) createMainWindow();
 });
