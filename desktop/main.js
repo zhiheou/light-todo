@@ -193,6 +193,7 @@ function createMainWindow() {
   if (mainWin && !mainWin.isDestroyed()) {
     mainWin.show();
     mainWin.focus();
+    refreshTrayMenu();
     return;
   }
   mainWin = new BrowserWindow({
@@ -210,16 +211,19 @@ function createMainWindow() {
   });
   mainWin.setMenuBarVisibility(false);
   mainWin.loadURL(mainWindowUrl());
+  mainWin.once("ready-to-show", () => refreshTrayMenu());
 
   // 关主窗口 = 只隐藏（桌宠继续在）
   mainWin.on("close", (e) => {
     if (!quitting) {
       e.preventDefault();
       mainWin.hide();
+      refreshTrayMenu(); // 托盘菜单第一项要跟着变成"打开主窗口"
     }
   });
   mainWin.on("closed", () => {
     mainWin = null;
+    refreshTrayMenu();
   });
 }
 
@@ -235,15 +239,44 @@ function createTray() {
   }
   tray = new Tray(img);
   tray.setToolTip("轻待办 · 桌宠在运行");
+  refreshTrayMenu();
+  // 左键点托盘 = 快速切换主窗口（和大多数常驻软件一致）
+  tray.on("click", () => {
+    if (mainWin && !mainWin.isDestroyed() && mainWin.isVisible()) hideMainWindow();
+    else createMainWindow();
+  });
+}
+
+/**
+ * 重建托盘菜单（每次右键时按当前状态重新生成）。
+ *
+ * 为什么要动态生成：标准的常驻软件里，托盘菜单第一项会跟着窗口状态变
+ * （窗口开着就显示"关闭主窗口"，关着就显示"打开主窗口"）。
+ * 之前是写死"打开轻待办主窗口"，主窗口开着时右键看菜单会以为没开、点了也没反馈。
+ * 同时补上"关闭主窗口"入口 —— 否则用户只能去点窗口的 ✕ 才能收起，不好找。
+ */
+function refreshTrayMenu() {
+  if (!tray) return;
+  const mainVisible = !!mainWin && !mainWin.isDestroyed() && mainWin.isVisible();
+  const petVisible = !!petWin && !petWin.isDestroyed() && petWin.isVisible();
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "打开轻待办主窗口", click: () => createMainWindow() },
-      { label: "显示/隐藏桌宠", click: () => { if (petWin) petWin.isVisible() ? petWin.hide() : petWin.show(); } },
+      mainVisible
+        ? { label: "关闭主窗口（桌宠继续在）", click: () => hideMainWindow() }
+        : { label: "打开轻待办主窗口", click: () => createMainWindow() },
+      {
+        label: petVisible ? "隐藏桌宠" : "显示桌宠",
+        click: () => {
+          if (!petWin || petWin.isDestroyed()) return;
+          if (petWin.isVisible()) petWin.hide();
+          else petWin.show();
+          refreshTrayMenu(); // 状态变了，菜单文案跟着更新
+        },
+      },
       { type: "separator" },
-      { label: "退出", click: () => { quitting = true; app.quit(); } },
+      { label: "退出（桌宠和窗口一起关掉）", click: () => { quitting = true; app.quit(); } },
     ]),
   );
-  tray.on("click", () => createMainWindow());
 }
 
 // ---------- 桌宠悬停轮询：鼠标进宠物区域 → 接管；移出 → 穿透 ----------
