@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import {
+  Apple,
   CalendarClock,
   CheckCircle2,
+  Download,
   ListTodo,
   LockKeyhole,
   MessageCircle,
+  MonitorDown,
   RefreshCcw,
   ShieldCheck,
   Sparkles,
@@ -14,6 +17,10 @@ import type { LucideIcon } from "lucide-react";
 import AuthForm from "./AuthForm";
 import { BloubAvatar } from "./BloubAvatar";
 import type { StateId } from "../lib/bloub/states";
+import { DOWNLOAD_READY } from "../lib/downloads";
+
+/** 跳到下载页（系统会自动识别，这里只负责带路） */
+export const DOWNLOAD_PAGE = "/download";
 
 interface LoginGateProps {
   onLogin: (username: string, password: string) => Promise<void>;
@@ -77,6 +84,15 @@ function HeroDemo() {
 }
 
 export default function LoginGate({ onLogin, onRegister, booting, error }: LoginGateProps) {
+  /** 侧边栏「下载桌面版」按钮的展开状态（默认收起，不抢主流程视线） */
+  const [dlOpen, setDlOpen] = useState(false);
+  /** 当前设备：桌面版里不显示"下载桌面版"（用户已经装好了） */
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    setIsDesktop(/Electron/i.test(ua));
+  }, []);
+
   return (
     <div className="gate-shell">
       {/* 左侧品牌 + 产品演示区 */}
@@ -162,6 +178,46 @@ export default function LoginGate({ onLogin, onRegister, booting, error }: Login
         <p className="gate-footnote">
           登录后数据自动加密同步到你的账号，无需手动备份
         </p>
+
+        {/* v3.9.4 首页下载入口：在线体验（左边的登录注册）+ 下载到桌面（这里） */}
+        {!isDesktop && (
+          <div className="gate-download">
+            {!dlOpen ? (
+              <button
+                type="button"
+                className="gate-download-toggle"
+                onClick={() => setDlOpen(true)}
+              >
+                <MonitorDown size={14} />
+                下载到桌面 · 桌宠常驻
+                {DOWNLOAD_READY.windows || DOWNLOAD_READY.mac ? null : (
+                  <span className="gate-download-soon">即将开放</span>
+                )}
+              </button>
+            ) : (
+              <div className="gate-download-panel">
+                <a className="gate-download-item" href={DOWNLOAD_PAGE}>
+                  <MonitorDown size={15} />
+                  <div>
+                    <b>Windows 版</b>
+                    <span>双击安装，登录后桌宠常驻桌面</span>
+                  </div>
+                </a>
+                <a className="gate-download-item" href={DOWNLOAD_PAGE}>
+                  <Apple size={15} />
+                  <div>
+                    <b>Mac 版</b>
+                    <span>支持 Intel 与 Apple 芯片</span>
+                  </div>
+                </a>
+                <a className="gate-download-more" href={DOWNLOAD_PAGE}>
+                  <Download size={13} />
+                  查看下载页与安装说明
+                </a>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

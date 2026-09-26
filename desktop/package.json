@@ -1,14 +1,17 @@
 {
   "name": "light-todo-desktop",
-  "version": "3.9.0",
+  "version": "3.9.4",
   "private": true,
   "description": "轻待办桌面版：桌宠常驻桌面",
   "main": "main.js",
   "scripts": {
     "start": "electron main.js",
     "dev": "cross-env LIGHT_TODO_URL=http://localhost:1420 electron main.js",
+    "icons": "node scripts/make-icons.mjs",
     "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:all": "electron-builder --win --mac"
   },
   "devDependencies": {
     "electron": "^33.4.11",
@@ -18,7 +21,8 @@
     "appId": "com.lighttodo.pet",
     "productName": "轻待办",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
@@ -26,6 +30,7 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "build/icon.ico",
       "sign": false
     },
     "nsis": {
@@ -33,6 +38,49 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "轻待办"
-    }
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "darkModeSupport": true,
+      "identity": null,
+      "extendInfo": {
+        "LSUIElement": 1,
+        "NSAppleEventsUsageDescription": "轻待办需要使用辅助功能来保持桌宠置顶显示。"
+      }
+    },
+    "dmg": {
+      "title": "轻待办 ${version}",
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zhiheou",
+        "repo": "light-todo",
+        "releaseType": "release"
+      }
+    ]
   }
 }

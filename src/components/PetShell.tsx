@@ -35,13 +35,34 @@ export interface PetShellProps {
 const PX: Record<"s" | "m" | "l", number> = { s: 56, m: 76, l: 104 };
 
 /**
- * 尺寸随设备按屏占比：目标 = 屏宽 9% 的桌宠（桌面 L≈104 时约 1150px 屏以下按比例缩，
- * 手机 390px→35px 占 9%，比固定乘 0.72 更协调）。s/m/l 彼此成比例。
+ * 桌面版（Electron）：宠物跑在一个 140px 的小窗口里，window.innerWidth 是**窗口**宽度而非屏幕宽度。
+ * 用它算尺寸会得到 39px（几乎看不见）。改读主进程从 screen.getPrimaryDisplay() 注入的真实屏幕参数。
  */
-function responsivePx(size: "s" | "m" | "l"): number {
-  const base = PX[size] ?? PX.m;
+interface DisplayMetrics {
+  width: number; // 屏幕工作区宽（CSS 像素）
+  height: number; // 屏幕工作区高（CSS 像素）
+  scaleFactor: number; // 缩放比（高分屏 = 2）
+}
+
+function getDisplayMetrics(): DisplayMetrics {
+  const dm = (window as unknown as { petDisplay?: DisplayMetrics }).petDisplay;
+  if (dm && typeof dm.width === "number" && dm.width > 0) return dm;
+  return { width: window.innerWidth, height: window.innerHeight, scaleFactor: window.devicePixelRatio || 1 };
+}
+
+/**
+ * 尺寸随设备自适应（窗口版 + 桌面版共用同一套算法）：
+ *  目标 = 屏幕宽 9%，但夹在 [64, 104] 之间；再按 s/m/l 比例缩放。
+ *  笔记本 1440 → 104（封顶）；台式 1920 → 104；超大屏 2560 → 104（封顶，不失控）；
+ *  小笔记本 1280 → 104；平板 768 → 69；手机 390 → 64（保底，别小到点不中）。
+ *  高分屏不需要额外补偿：CSS 像素本身就按缩放比归一，直接乘反而会翻倍变大。
+ *  桌面版窗口由主进程按这里返回的值 + 屏幕缩放一起 resize（见 main.js syncPetWindowSize）。
+ */
+export function responsivePx(size: "s" | "m" | "l"): number {
+  const base = PX[size] ?? PX.l;
   const ratio = base / PX.l; // 相对 L
-  const targetL = Math.min(PX.l, Math.max(PX.s * 0.7, window.innerWidth * 0.09));
+  const { width } = getDisplayMetrics();
+  const targetL = Math.min(PX.l, Math.max(64, width * 0.09));
   return Math.round(targetL * ratio);
 }
 
@@ -102,17 +123,28 @@ export default function PetShell({
   const position = skin.position;
 
   // 尺寸随窗口/皮肤大小变化（resize / orientation）
+  // 桌面版额外监听主进程广播的 pet-display（换显示器 / 改缩放时重新自适应）
   useEffect(() => {
     const update = () => setPx(responsivePx(skin.size));
     update();
     window.addEventListener("resize", update);
     window.addEventListener("orientationchange", update);
+    window.addEventListener("pet-display", update);
     return () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
+      window.removeEventListener("pet-display", update);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skin.size]);
+
+  // 桌面版：把算好的尺寸报给主进程，让宠物窗口跟着变大变小（否则 140px 窗口装不下 104px 宠物）
+  useEffect(() => {
+    const dm = (window as unknown as { petDisplay?: DisplayMetrics }).petDisplay;
+    if (!dm) return; // 网页版：宠物在窗口内，无需 resize
+    const api = (window as unknown as { petAPI?: { setPetSize: (px: number) => void } }).petAPI;
+    api?.setPetSize?.(px);
+  }, [px]);
 
   // 桌宠位置上报（dock/position/尺寸变化或拖拽/飞行后给外层定位聊天气泡用）
   const lastReported = useRef("");

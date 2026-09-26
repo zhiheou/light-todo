@@ -74,6 +74,7 @@ import {
   saveStoredSession,
   wasSessionRevalidated,
 } from "./lib/session";
+import { collapseMainWindow, reportLoginState } from "./lib/desktopBridge";
 
 interface ToastState {
   id: number;
@@ -893,6 +894,8 @@ export default function App() {
     resetAllLocalData();
     setPinState("idle");
     setPinError("");
+    // v3.9.4 桌面版：登出后把桌宠收起来、弹回登录窗口
+    reportLoginState(false);
     showToast("已退出账号");
   }, [showToast, resetAllLocalData]);
 
@@ -901,6 +904,8 @@ export default function App() {
     const stored = getStoredSession();
     if (!stored) {
       setAuthState("gate");
+      // v3.9.4 桌面版：没存过会话 → 让主进程弹出登录窗口（桌宠先收起来）
+      reportLoginState(false);
       return;
     }
     // v3.9.2 perf：本浏览器会话内已校验过 → 走快速恢复（缓存密钥，不等 PBKDF2）；
@@ -916,10 +921,17 @@ export default function App() {
         } else {
           clearStoredSession();
           setAuthState("gate");
+          // v3.9.4 桌面版：会话失效 → 弹登录窗口
+          reportLoginState(false);
         }
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // v3.9.4 桌面版：登录成功后收起主窗口，只留桌宠（用户要的"打开就是桌宠"）
+  useEffect(() => {
+    if (authState === "in") collapseMainWindow();
+  }, [authState]);
 
   useEffect(() => {
     if (!account || !accountReady || !accountKeySalt || !accountPassword) return;

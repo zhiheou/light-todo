@@ -6,6 +6,7 @@ import PetShell from "./PetShell";
 import MascotAssistant from "./MascotAssistant";
 import { loadPetSkin } from "../lib/petSkin";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
+import { reportLoginState } from "../lib/desktopBridge";
 
 /**
  * 桌面版薄壳（Electron 用，v3.9）
@@ -53,14 +54,24 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
 
   const ctx: BrainCtx = { tasks, persona: mode as "work" | "personal" };
 
+  // v3.9.4 登录状态回报：主进程据此决定显示桌宠还是弹登录窗。
+  // 本壳只在已登录时被 App 渲染，所以直接报 true。
+  useEffect(() => {
+    reportLoginState(true);
+  }, []);
+
   // v3.9 桌面版关键：鼠标穿透动态切换
   // 默认整窗穿透（透明区域不挡其他程序）；鼠标进入宠物像素范围时接管，移出立即恢复穿透。
   // 不做这个的话：宠物的点击/拖拽全部收不到（主进程建窗时就设了全窗穿透）。
+  // 注：主进程另有 60ms 轮询做同一件事（更可靠），这里是页面侧的第一道响应，两者不冲突。
   const rootRef = useRef<HTMLDivElement>(null);
   const petAPI = (window as unknown as { petAPI?: {
     setIgnoreMouseEvents: (b: boolean) => void;
     moveWindow: (dx: number, dy: number) => void;
     openMainWindow: () => void;
+    closeMainWindow: () => void;
+    setPetSize: (px: number) => void;
+    reportLogin: (b: boolean) => void;
   } }).petAPI;
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
