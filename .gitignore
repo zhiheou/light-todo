@@ -33,3 +33,7 @@ _devlog/_*.mjs
 _devlog/_*.ts
 desktop/node_modules/
 desktop/release/
+
+# 桌面版安装包/构建产物（体积大，由 GitHub Actions 产出并挂 Releases）
+desktop/release/
+desktop/build/*.blockmap
