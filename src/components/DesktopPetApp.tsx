@@ -2,17 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Mode, Task, Memo } from "../types";
 import { loadTasks, saveTasks } from "../lib/tasks";
 import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
-import PetShell from "./PetShell";
 import MascotAssistant from "./MascotAssistant";
-import { loadPetSkin } from "../lib/petSkin";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
-import { reportLoginState } from "../lib/desktopBridge";
+import { hasStoredSession, reportLoginState } from "../lib/desktopBridge";
 
 /**
  * 桌面版薄壳（Electron 用，v3.9）
  *
  * 只在 `?desktop=pet` 时渲染：整页透明，只放桌宠 + 聊天面板。
- * 复用全部现有组件（PetShell / MascotAssistant / bloub 引擎），零重写。
+ * 桌宠本体由 MascotAssistant 内部渲染（不要再在这里加一个 PetShell，会叠成两只）。
  *
  * 数据：从 localStorage 读（桌面版首次需在线上域名登录一次以同步 E2EE 数据，
  *       之后本机有缓存即可用）。
@@ -20,7 +18,6 @@ import { reportLoginState } from "../lib/desktopBridge";
 export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks(mode as Mode));
   const [memos, setMemos] = useState<Memo[]>(() => loadWorkMemos());
-  const [skin] = useState(() => loadPetSkin(mode as Mode));
 
   // 桌面模式：整页透明（Electron 才能看到"只有宠物"）
   useEffect(() => {
@@ -54,10 +51,15 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
 
   const ctx: BrainCtx = { tasks, persona: mode as "work" | "personal" };
 
-  // v3.9.4 登录状态回报：主进程据此决定显示桌宠还是弹登录窗。
-  // 本壳只在已登录时被 App 渲染，所以直接报 true。
+  // v3.9.4 登录状态回报（关键：决定主进程显示桌宠还是弹登录窗）
+  //
+  // 这里**必须**报真实值，不能无条件 true。踩过的坑：
+  // 无会话冷启动时，main.tsx 不报，本壳却无条件报 true → 主进程显示桌宠
+  // + 6 秒兜底被"已收到回报"压掉 → 登录窗永远不弹，用户对着没数据的桌宠发呆。
+  //
+  // 会话存在 localStorage（同源同 partition 两个窗口共享），所以本窗口读得到。
   useEffect(() => {
-    reportLoginState(true);
+    reportLoginState(hasStoredSession());
   }, []);
 
   // v3.9 桌面版关键：鼠标穿透动态切换
@@ -86,18 +88,12 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
 
   return (
     <div className="desktop-pet-root" ref={rootRef} onPointerMove={onPointerMove}>
-      <PetShell
-        mode={mode as Mode}
-        skin={skin}
-        expression="idle"
-        coatKey={skin.coat}
-        onMenu={(a) => {
-          if (a === "chat") window.dispatchEvent(new CustomEvent("pet-open-chat"));
-        }}
-        onSingleClick={() => window.dispatchEvent(new CustomEvent("pet-open-chat"))}
-        onDoubleClick={() => void 0}
-      />
-      {/* 聊天面板复用现有组件（智能回答全在 MascotAssistant 里） */}
+      {/*
+        桌宠只由 MascotAssistant 渲染一次。
+        v3.9.4 修：此前这里额外渲染了一个 <PetShell>，而 MascotAssistant 内部也会渲染一个，
+        两只像素级重叠 → 拖拽时"一只跟着走一只原地不动"、"隐藏轻宜"只藏掉一只（看起来像按钮失灵）。
+        正确做法是只保留带完整对话/情绪状态的那一只（MascotAssistant 里的）。
+      */}
       <MascotAssistant
         mode={mode as Mode}
         tasks={tasks}

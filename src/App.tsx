@@ -171,6 +171,8 @@ export default function App() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimer = useRef<number | null>(null);
   const remoteSaveTimer = useRef<number | null>(null);
+  /** v3.9.4：本窗口内是否刚执行过登录/注册（决定要不要收起主窗口；会话恢复不算） */
+  const justLoggedIn = useRef(false);
   const notified = useRef<Set<string>>(new Set());  // 吉祥物：每个会话只登录问候一次 / 只搭话有限次数
   const mascotGreeted = useRef(false);
   const mascotChats = useRef(0);
@@ -735,6 +737,7 @@ export default function App() {
       setAccountKeySalt(keySalt);
       setAccountPassword(password);
       setAccountReady(true);
+      justLoggedIn.current = true; // 注册成功：允许收起主窗口（见 authState effect）
       setAuthState("in");
       setView("today");
       showToast("账号已创建，数据已加密同步");
@@ -794,6 +797,7 @@ export default function App() {
       setAccountKeySalt(login.keySalt);
       setAccountPassword(password);
       setAccountReady(true);
+      justLoggedIn.current = true; // 登录成功：允许收起主窗口（见 authState effect）
       setAuthState("in");
       setView("today");
       showToast("登录成功，数据已同步");
@@ -928,9 +932,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // v3.9.4 桌面版：登录成功后收起主窗口，只留桌宠（用户要的"打开就是桌宠"）
+  // v3.9.4 桌面版：登录成功后收起主窗口 + 让桌宠出来，只留桌宠（用户要的"打开就是桌宠"）
+  //
+  // 两个坑（都踩过）：
+  //  1. 只 collapseMainWindow 不报 true → 桌宠窗口那边以为自己没登录、主进程也没被通知，
+  //     登录完屏幕上什么都没有，只剩托盘图标。
+  //  2. 不能对所有进入 "in" 的方式都收起：已登录用户从托盘打开主窗口时，
+  //     会话恢复也会把 authState 置 "in" → 窗口刚弹出来就自己藏了（看起来像"点了没反应"）。
+  //     所以只在**本窗口内真的执行过登录/注册动作**后才收起；会话恢复不收起。
   useEffect(() => {
-    if (authState === "in") collapseMainWindow();
+    if (authState !== "in") return;
+    reportLoginState(true); // 无论哪种方式进入已登录，都要让主进程知道
+    if (justLoggedIn.current) {
+      justLoggedIn.current = false;
+      collapseMainWindow();
+    }
   }, [authState]);
 
   useEffect(() => {

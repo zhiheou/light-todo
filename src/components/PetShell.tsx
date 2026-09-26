@@ -35,19 +35,9 @@ export interface PetShellProps {
 /** s/m/l 相对"大"的比例（0.72 / 0.95 / 1） */
 const SIZE_RATIO: Record<"s" | "m" | "l", number> = { s: 0.72, m: 0.95, l: 1 };
 
-/**
- * 目标边长 = 屏幕宽 ÷ 15，夹在 [88, 128]。
- * 为什么要夹：下限保证手机/小窗上点得中，上限保证 4K 大屏上不会变成一只占半屏的怪物。
- *
- * 实测取值（l 档）：
- *   1280 小笔记本 → 88（触底）  1366 常见笔记本 → 91
- *   1440 MacBook  → 96          1536 缩放笔记本 → 102
- *   1680 → 112                  1920 台式 → 128
- *   2560 / 4K     → 128（封顶）
- * 这样笔记本与台式**确实不同**，符合"不能显示同样大小"的要求。
- */
-const PET_MIN = 88;
-const PET_MAX = 128;
+/** 目标边长下限/上限（详见 responsivePx 注释） */
+export const PET_MIN = 88;
+export const PET_MAX = 128;
 
 /**
  * 桌面版（Electron）：宠物跑在一个小窗口里，window.innerWidth 是**窗口**宽度而非屏幕宽度，
@@ -67,16 +57,28 @@ function getDisplayMetrics(): DisplayMetrics {
 }
 
 /**
- * 尺寸随设备自适应（网页版 + 桌面版共用同一套算法）：
- *  屏幕大 → 宠物大，屏幕小 → 宠物小；再叠加用户选的 s/m/l 档位。
- *  高分屏不需要补偿：CSS 像素本身按缩放比归一，再乘一次反而会翻倍变大。
- *  桌面版窗口由主进程按上报值 resize（见 main.js 的 pet-set-size 处理）。
+ * 纯函数：给定屏幕宽度与档位算出宠物边长。
+ *
+ *  目标 = 屏幕宽 ÷ 15，夹在 [PET_MIN, PET_MAX]，再乘 s/m/l 比例。
+ *  为什么夹：下限保证手机/小窗上点得中，上限保证 4K 大屏上不会变成占半屏的怪物。
+ *
+ * 实测取值（l 档）：1280→88(触底) 1366→91 1440→96 1536→102 1680→112 1920→128(封顶)
+ * —— 笔记本与台式**确实不同**，符合"不能显示同样大小"的产品要求。
+ *
+ * 注意：高分屏不需要额外乘 scaleFactor（CSS 像素本身按缩放比归一，再乘会翻倍变大）。
+ */
+export function calcPetPx(size: "s" | "m" | "l", screenWidth: number): number {
+  const ratio = SIZE_RATIO[size] ?? SIZE_RATIO.l;
+  const baseL = Math.min(PET_MAX, Math.max(PET_MIN, screenWidth / 15));
+  return Math.round(baseL * ratio);
+}
+
+/**
+ * 尺寸随设备自适应（网页版 + 桌面版共用同一套算法）。
+ * 桌面版窗口由主进程按上报值 resize（见 main.js 的 pet-set-size 处理）。
  */
 export function responsivePx(size: "s" | "m" | "l"): number {
-  const ratio = SIZE_RATIO[size] ?? SIZE_RATIO.l;
-  const { width } = getDisplayMetrics();
-  const baseL = Math.min(PET_MAX, Math.max(PET_MIN, width / 15));
-  return Math.round(baseL * ratio);
+  return calcPetPx(size, getDisplayMetrics().width);
 }
 
 export default function PetShell({

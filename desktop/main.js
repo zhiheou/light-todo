@@ -32,6 +32,16 @@ const APP_URL = process.env.LIGHT_TODO_URL || "https://todo.aebuiyke.xyz";
 const PET_PADDING = 56;
 /** 桌宠离屏幕边缘的间距 */
 const PET_MARGIN = 24;
+/**
+ * 聊天面板打开时的窗口尺寸。
+ * 桌面版网页里的聊天面板固定宽 340px（见 styles.css 的 .mascot-panel），
+ * 窗口只有"宠物 + 留白"那么点时面板会被裁掉一半 —— 聊天就用不了了。
+ * 所以打开面板时把窗口临时放大到装得下：左右各留 12px 边距 + 面板 + 宠物。
+ */
+const CHAT_PANEL_W = 340;
+const CHAT_MARGIN = 12;
+/** 窗口高度：面板最高 460 + 宠物 + 边距 */
+const CHAT_WINDOW_H = 460 + PET_PADDING + CHAT_MARGIN * 2;
 
 let petWin = null;
 let mainWin = null;
@@ -44,6 +54,8 @@ let petSize = PET_FALLBACK;
 let petSizeApplied = false;
 /** 是否已确认登录（用于忽略重复上报，见 login-state 处理器） */
 let hasLoggedIn = false;
+/** 聊天面板是否打开（打开时窗口临时放大，否则 340px 的面板会被裁掉一半） */
+let chatOpen = false;
 
 // 屏幕参数注入：用 executeJavaScript 直接写进页面的 window。
 //
@@ -64,7 +76,13 @@ function injectDisplayMetrics(target) {
 /** 当前鼠标所在的显示器（桌宠跟着用户走，多屏不出错） */
 function displayForPet() {
   try {
-    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    // getCursorScreenPoint 返回物理像素，getDisplayNearestPoint 按 DIP 判定；
+    // 混合 DPI 多屏下必须先换算，否则可能选中错误的显示器（桌宠"跟随鼠标"会跳错屏）
+    const pt = screen.getCursorScreenPoint();
+    const rough = screen.getDisplayNearestPoint(pt);
+    const s = rough.scaleFactor || 1;
+    const dip = { x: Math.round(pt.x / s), y: Math.round(pt.y / s) };
+    return screen.getDisplayNearestPoint(dip);
   } catch {
     return screen.getPrimaryDisplay();
   }
@@ -81,18 +99,35 @@ function displayMetrics(display) {
 }
 
 /**
- * 桌宠窗口几何：窗口 = 宠物 + 留白；位置 = 工作区右下角留出间距。
+ * 桌宠窗口几何。
+ *
+ * 平时：窗口 = 宠物 + 留白，贴工作区右下角（不挡路）。
+ * 聊天时：临时放大到装得下 340px 的聊天面板（否则面板被裁掉一半、聊天没法用），
+ *        仍保持右下角贴边，所以视觉上宠物不会跳走。
+ *
  * 全部用 CSS 像素（Electron 的 workArea 已是 CSS 像素），自己再乘 scaleFactor 会跑偏。
  */
 function petWindowGeometry(display) {
   const d = display || screen.getPrimaryDisplay();
   const wa = d.workArea;
-  const winSize = Math.round(petSize + PET_PADDING);
+  const base = Math.round(petSize + PET_PADDING);
+  if (!chatOpen) {
+    return {
+      width: base,
+      height: base,
+      x: Math.round(wa.x + wa.width - base - PET_MARGIN),
+      y: Math.round(wa.y + wa.height - base - PET_MARGIN),
+    };
+  }
+  // 聊天模式：宽度以面板为准（面板在宠物左侧时也一样，窗口够宽即可），
+  // 但不超过工作区，避免小屏上窗口比屏幕还宽
+  const w = Math.min(wa.width, CHAT_PANEL_W + base);
+  const h = Math.min(wa.height, CHAT_WINDOW_H);
   return {
-    width: winSize,
-    height: winSize,
-    x: Math.round(wa.x + wa.width - winSize - PET_MARGIN),
-    y: Math.round(wa.y + wa.height - winSize - PET_MARGIN),
+    width: w,
+    height: h,
+    x: Math.round(wa.x + wa.width - w - CHAT_MARGIN),
+    y: Math.round(wa.y + wa.height - h - CHAT_MARGIN),
   };
 }
 
@@ -263,8 +298,13 @@ ipcMain.on("pet-ignore", (_e, ignore) => {
   if (petWin && typeof ignore === "boolean") petWin.setIgnoreMouseEvents(ignore, { forward: true });
 });
 ipcMain.on("pet-hitbox", (_e, box) => {
-  // 页面上报宠物在窗口内的实际矩形（含聊天气泡），用于更精确的命中判定
-  if (box && typeof box.x === "number") petHitbox = box;
+  // 页面上报"宠物 + 展开的聊天面板"的实际矩形（窗口 CSS 像素坐标）。
+  // 传 null 表示暂时没有可交互区域（例如宠物被隐藏）→ 整窗穿透。
+  if (box === null) {
+    petHitbox = null;
+    return;
+  }
+  if (box && typeof box.x === "number" && typeof box.w === "number") petHitbox = box;
 });
 ipcMain.on("pet-move", (_e, { dx, dy }) => {
   if (!petWin) return;
@@ -279,6 +319,13 @@ ipcMain.on("pet-set-size", (_e, px) => {
   // 之后仅在真的变了才 resize，避免每次渲染抖动
   if (clamped === petSize && petSizeApplied) return;
   petSize = clamped;
+  applyPetSize();
+});
+/** 聊天面板开关：打开时窗口要放大，否则 340px 面板被裁掉 */
+ipcMain.on("pet-chat-open", (_e, open) => {
+  const next = !!open;
+  if (next === chatOpen) return;
+  chatOpen = next;
   applyPetSize();
 });
 /** 登录完成后收起主窗口，只留桌宠 */
@@ -299,9 +346,16 @@ ipcMain.on("login-state", (_e, loggedIn) => {
     if (petWin && !petWin.isDestroyed() && !petWin.isVisible()) petWin.show();
     return;
   }
-  // 未登录 / 会话失效：收起桌宠，弹登录窗口
+  // 未登录 / 会话失效
+  const wasLoggedIn = hasLoggedIn;
   hasLoggedIn = false;
   if (petWin && !petWin.isDestroyed() && petWin.isVisible()) petWin.hide();
+  // 从"已登录"变成"未登录"（登出/会话失效）：让桌宠窗口重新加载。
+  // 否则它里面的 React 仍停在登录态，下次登录后显示的是一份过期状态。
+  // 重新加载后 DesktopPetApp 会重新读 localStorage（此时已清空）并如实回报 false。
+  if (wasLoggedIn && petWin && !petWin.isDestroyed()) {
+    petWin.webContents.reload();
+  }
   if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) createMainWindow();
 });
 

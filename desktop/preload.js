@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld("petAPI", {
    * 桌面版窗口只有 ~140px，不 resize 的话 104px 的宠物会被裁掉。
    */
   setPetSize: (px) => ipcRenderer.send("pet-set-size", px),
+  /**
+   * v3.9.4 命中区域上报：宠物本体 + 打开的聊天面板的真实矩形。
+   * 不上报的话主进程会把整个窗口（含 56px 透明留白）当命中区，
+   * 宠物周围一圈会抢鼠标、点桌面图标点不中。
+   */
+  setHitbox: (r) => ipcRenderer.send("pet-hitbox", r),
+  /** 聊天面板开关（打开时窗口需放大，否则 340px 面板被裁掉） */
+  setChatOpen: (open) => ipcRenderer.send("pet-chat-open", !!open),
   /** 开机自启 */
   getAutoLaunch: () => ipcRenderer.invoke("get-auto-launch"),
   setAutoLaunch: (on) => ipcRenderer.invoke("set-auto-launch", on),

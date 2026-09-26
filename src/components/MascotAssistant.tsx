@@ -24,6 +24,7 @@ import {
   type BrainCtx,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
+import { reportChatOpen, reportInteractiveRect } from "../lib/desktopBridge";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
 import {
   clearLearnLog,
@@ -228,6 +229,43 @@ export default function MascotAssistant({
   const [previewState, setPreviewState] = useState<StateId | null>(null);
   /** 桌宠当前位置（聊天气泡跟随） */
   const [petPos, setPetPos] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * v3.9.4 桌面版：面板开合要通知主进程（打开时窗口需放大到装得下 340px 面板，
+   * 否则面板被裁掉一半、聊天没法用）。网页版 petAPI 不存在，是空操作。
+   */
+  useEffect(() => {
+    reportChatOpen(open);
+  }, [open]);
+
+  /**
+   * v3.9.4 桌面版：上报"可交互区域"= 宠物矩形 ∪ 面板矩形。
+   * 不上报的话主进程把整个窗口（含 56px 透明留白）当命中区 →
+   * 宠物周围一圈会抢鼠标、点桌面图标点不中。
+   */
+  useEffect(() => {
+    const pet = petPos;
+    const panel = panelRef.current?.getBoundingClientRect();
+    if (!pet && !panel) {
+      reportInteractiveRect(null);
+      return;
+    }
+    if (!panel || !open) {
+      reportInteractiveRect(pet);
+      return;
+    }
+    if (!pet) {
+      reportInteractiveRect({ x: panel.x, y: panel.y, w: panel.width, h: panel.height });
+      return;
+    }
+    // 两块区域的并集
+    const x = Math.min(pet.x, panel.x);
+    const y = Math.min(pet.y, panel.y);
+    const x2 = Math.max(pet.x + pet.w, panel.x + panel.width);
+    const y2 = Math.max(pet.y + pet.h, panel.y + panel.height);
+    reportInteractiveRect({ x, y, w: x2 - x, h: y2 - y });
+  }, [petPos, open, panelSize]);
   const seenNudge = useRef<Set<number>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -821,6 +859,7 @@ export default function MascotAssistant({
       {/* 聊天面板：锚定在桌宠旁（右上方），超出右缘自动往左收 */}
       {open && (
         <div
+          ref={panelRef}
           className={`mascot-panel mascot-${mode}`}
           role="dialog"
           aria-label={`与${persona.name}对话`}
