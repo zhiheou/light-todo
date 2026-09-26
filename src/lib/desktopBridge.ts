@@ -106,6 +106,24 @@ function flushHitAreas(): void {
 }
 
 /**
+ * 定时重发当前的可点区域（保险机制）。
+ *
+ * 为什么需要：主进程靠"页面上报的矩形"判定要不要接管鼠标，而上报只在**变化时**才发。
+ * 如果用户把鼠标停在某处不动、期间窗口/菜单状态有过变化（比如面板刚关、菜单刚开），
+ * 判定可能停在旧值上 —— 表现为"明明点在按钮上却穿透"。
+ * 定时重发（1.5s 一次，内容没变时主进程侧无副作用）把这种状态自动纠正回来。
+ */
+export function startHitAreaHeartbeat(): void {
+  if (typeof window === "undefined") return;
+  const tick = () => {
+    if (hitAreas.size === 0) return; // 没有可点区域就不用发
+    lastSent = ""; // 强制下一次 flush 真的发出去
+    flushHitAreas();
+  };
+  window.setInterval(tick, 1500);
+}
+
+/**
  * 登记 / 更新一个可交互区域。传 null 表示该来源当前不存在（例如菜单已关闭）。
  * @param id 来源标识，如 "pet" / "panel" / "menu"
  */

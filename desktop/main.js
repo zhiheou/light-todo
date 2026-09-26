@@ -352,13 +352,24 @@ function startPetHoverWatch() {
       ignoring = true;
       petWin.setIgnoreMouseEvents(true, { forward: true });
     }
-  }, 60); // 60ms ≈ 16fps，足够跟手且不吃 CPU
+  }, 25); // 25ms ≈ 40fps：够跟手。60ms 时鼠标快速移到菜单上、判定还没跟上，
+  //         那一刻的点击会落空（用户表现就是"点了没反应"）。40fps 的 CPU 开销仍可忽略。
 }
 
 // ---------- IPC ----------
+/**
+ * v3.9.11：`pet-ignore` 通道**不再直接生效**。
+ *
+ * 以前页面侧会调它来切穿透，但那份判定只认宠物和聊天面板、**不认右键菜单**，
+ * 于是和主进程的轮询（认得菜单）以 16Hz 互相覆盖 —— 鼠标一移到菜单上就被页面设回穿透，
+ * 点击直接穿到桌面，用户看到的就是"右键菜单点了没反应"。
+ * 现在鼠标接管**只由 `startPetHoverWatch` 一处决定**（判定源是页面上报的完整可点区域）。
+ * 通道保留只为兼容还没更新的旧版前端，且**只在没有 hitbox 上报时才允许生效**。
+ */
 ipcMain.on("pet-ignore", (_e, ignore) => {
-  // 兼容旧调用（现在主要由主进程轮询控制）
-  if (petWin && typeof ignore === "boolean") petWin.setIgnoreMouseEvents(ignore, { forward: true });
+  if (!petWin) return;
+  if (petHitbox) return; // 已被轮询接管，忽略页面侧的过时判定
+  if (typeof ignore === "boolean") petWin.setIgnoreMouseEvents(ignore, { forward: true });
 });
 ipcMain.on("pet-hitbox", (_e, box) => {
   // 页面上报"宠物 + 展开的聊天面板"的实际矩形（窗口 CSS 像素坐标）。

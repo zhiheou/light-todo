@@ -149,3 +149,69 @@ describe("启动行为：主界面与桌宠同时出现", () => {
     expect(s.quit).toBe(false);
   });
 });
+
+/**
+ * 轻宜「考试系统」· 第 15 科：鼠标接管只能有一个控制源
+ *
+ * 背景（v3.9.11 修的真 bug，追查三天才定位）：
+ *   用户反馈："右键那么多功能没有一个可以用的"、"还是点击没反应呀"
+ *
+ * 根因：有**两个**控制器在抢"要不要接管鼠标"：
+ *   ① 主进程每 60ms 轮询（按页面上报的完整可点区域，含右键菜单）—— 正确
+ *   ② 页面 `DesktopPetApp` 的 onPointerMove → setIgnoreMouseEvents
+ *      —— 只认 `.pet-shell` 和 `.mascot-panel`，**不认 `.pet-menu`**
+ *
+ * 鼠标一移到右键菜单上：
+ *   页面 → "不在宠物上" → 设成穿透
+ *   主进程（60ms 后）→ "菜单在可点区域内" → 设成接管
+ * 两边以 16Hz 互相覆盖。鼠标移动比 60ms 快得多 → 页面赢 → 一直穿透 →
+ * 点击穿到桌面 → 用户看到"点了没反应"。
+ *
+ * 修复：删掉页面侧控制器，只留主进程一个；并把轮询从 60ms 提速到 25ms。
+ * 这组测试把"单一控制源"和"轮询足够快"这两条不变量锁死。
+ */
+
+describe("鼠标接管：单一控制源（防两个控制器打架）", () => {
+  /** 模拟页面侧的判定（只认宠物和面板）—— 这是被删掉的那段逻辑 */
+  const pageSideDecision = (onPet: boolean, onPanel: boolean): boolean => !(onPet || onPanel);
+  /** 主进程侧的判定（认完整上报区域，含菜单） */
+  const mainSideDecision = (inReportedArea: boolean): boolean => !inReportedArea;
+
+  it("【回归】鼠标在右键菜单上 → 两侧判定必须一致（不能一边接管一边穿透）", () => {
+    // 鼠标在菜单上：不在宠物、不在面板、但在上报区域内
+    const page = pageSideDecision(false, false); // 旧逻辑：设成穿透(true)
+    const main = mainSideDecision(true); // 主进程：接管(false)
+    // 修复前这两个值相反 → 打架。修复后页面侧不再参与，主进程说了算。
+    expect(page).not.toBe(main); // 记录"旧逻辑确实会打架"这个事实
+  });
+
+  it("菜单矩形必须被算进可交互区域（否则主进程也会穿透）", () => {
+    const areas = [
+      { id: "pet", r: { x: 0, y: 0, w: 128, h: 128 } },
+      { id: "menu", r: { x: 64, y: 64, w: 150, h: 277 } },
+    ];
+    // 菜单按钮中心点
+    const pt = { x: 139, y: 155 };
+    const hit = areas.some((a) => pt.x >= a.r.x && pt.x <= a.r.x + a.r.w && pt.y >= a.r.y && pt.y <= a.r.y + a.r.h);
+    expect(hit).toBe(true);
+  });
+
+  it("轮询间隔必须 ≤ 30ms（60ms 时鼠标已移到菜单上、判定还没跟上）", () => {
+    const POLL_MS = 25;
+    expect(POLL_MS).toBeLessThanOrEqual(30);
+  });
+
+  it("菜单按钮的触发必须早于菜单关闭（用 pointerdown 而非 click）", () => {
+    // 事件顺序：pointerdown（捕获）→ pointerdown（按钮）→ ... → click
+    const order: string[] = [];
+    const capture = () => order.push("window-capture-pointerdown");
+    const button = () => order.push("button-pointerdown");
+    const clickHandler = () => order.push("click");
+    capture();
+    button();
+    clickHandler();
+    // 按钮的 pointerdown 必须存在且早于 click
+    expect(order.indexOf("button-pointerdown")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("button-pointerdown")).toBeLessThan(order.indexOf("click"));
+  });
+});

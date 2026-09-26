@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Mode, Task, Memo } from "../types";
 import { loadTasks, saveTasks } from "../lib/tasks";
 import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
 import MascotAssistant from "./MascotAssistant";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
-import { hasStoredSession, reportLoginState } from "../lib/desktopBridge";
+import { hasStoredSession, isDesktopApp, reportLoginState, startHitAreaHeartbeat } from "../lib/desktopBridge";
 
 /**
  * 桌面版薄壳（Electron 用，v3.9）
@@ -62,32 +62,33 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
     reportLoginState(hasStoredSession());
   }, []);
 
-  // v3.9 桌面版关键：鼠标穿透动态切换
-  // 默认整窗穿透（透明区域不挡其他程序）；鼠标进入宠物像素范围时接管，移出立即恢复穿透。
-  // 不做这个的话：宠物的点击/拖拽全部收不到（主进程建窗时就设了全窗穿透）。
-  // 注：主进程另有 60ms 轮询做同一件事（更可靠），这里是页面侧的第一道响应，两者不冲突。
+  // v3.9.11 可点区域的"心跳重发"：鼠标静止时也定期上报，
+  // 防止主进程的接管判定停在旧值（表现为"点在按钮上却穿透"）。
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    startHitAreaHeartbeat();
+  }, []);
+
+  /**
+   * v3.9.11 🔴 删掉了页面侧的"穿透切换"控制器（原本在 onPointerMove 里调 setIgnoreMouseEvents）。
+   *
+   * 为什么必须删（用户反馈"右键那么多功能没有一个可以用的"，追查三天才找到的真根因）：
+   * 主进程每 60ms 轮询一次鼠标位置，按**页面上报的完整可点区域**（宠物 ∪ 聊天面板 ∪ **右键菜单**）
+   * 决定要不要接管鼠标 —— 这是 v3.9.7 之后唯一正确的判定源。
+   * 而页面侧这段旧代码**只认 .pet-shell 和 .mascot-panel，不认 .pet-menu**，
+   * 于是鼠标一移到右键菜单上就：
+   *   页面 -> "不在宠物上" -> 设成穿透
+   *   主进程（60ms 后）-> "菜单在可点区域内" -> 设成接管
+   * 两边以 16Hz 互相覆盖。鼠标移动比 60ms 快得多 -> **页面赢** -> 一直处于穿透 ->
+   * 点击直接穿到桌面 -> 用户看到的就是"点了没反应"。
+   *
+   * 现在只留主进程一个控制器（`startPetHoverWatch` + `pet-hitbox` 上报），
+   * 页面只负责如实上报"哪些矩形可以点"（见 src/lib/desktopBridge.ts 的 registerHitArea）。
+   */
   const rootRef = useRef<HTMLDivElement>(null);
-  const petAPI = (window as unknown as { petAPI?: {
-    setIgnoreMouseEvents: (b: boolean) => void;
-    moveWindow: (dx: number, dy: number) => void;
-    openMainWindow: () => void;
-    closeMainWindow: () => void;
-    setPetSize: (px: number) => void;
-    reportLogin: (b: boolean) => void;
-  } }).petAPI;
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!petAPI) return;
-      const t = e.target as HTMLElement;
-      // 命中宠物本体或对话面板 → 接管鼠标；否则穿透
-      const hit = !!(t.closest(".pet-shell") || t.closest(".mascot-panel"));
-      petAPI.setIgnoreMouseEvents(!hit);
-    },
-    [petAPI],
-  );
 
   return (
-    <div className="desktop-pet-root" ref={rootRef} onPointerMove={onPointerMove}>
+    <div className="desktop-pet-root" ref={rootRef}>
       {/*
         桌宠只由 MascotAssistant 渲染一次。
         v3.9.4 修：此前这里额外渲染了一个 <PetShell>，而 MascotAssistant 内部也会渲染一个，

@@ -383,12 +383,29 @@ export default function PetShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [px]);
 
-  // 菜单外点关闭
+  /**
+   * 菜单外点关闭（v3.9.11 重做）。
+   *
+   * 原来的写法有两个真问题（用户反馈"右键那么多功能没有一个可以用的"）：
+   *  1. 用 `click` 事件（冒泡阶段）——点菜单按钮时，按钮自身的 onClick 已经把面板打开了，
+   *     而菜单关闭要等冒泡到 window 才发生，中间这段时间差里新面板已经盖在菜单上；
+   *  2. 更致命的：聊天面板会弹在宠物右侧、**正好压在菜单上**（实测面板 z-index 65 虽低于菜单 70，
+   *     但菜单没及时关掉时，后续点击就落到面板上了）→ 用户感觉"点了没反应"。
+   *
+   * 改成 `pointerdown` + **捕获阶段**：在按钮的 onClick 之前就把菜单收掉，
+   * 不存在时间差。菜单自身的点击用 stopPropagation 挡在捕获之后、按钮逻辑之前。
+   */
   useEffect(() => {
     if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    const el = menuRef.current;
+    const close = (e: PointerEvent) => {
+      // 点在菜单内部就不管（交给按钮自己的 onClick）
+      if (el && e.target instanceof Node && el.contains(e.target)) return;
+      setMenu(null);
+    };
+    // 捕获阶段：比任何冒泡处理器都早，确保"菜单先消失，再执行按钮动作"
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
   }, [menu]);
 
   // ---- 拖拽：任何位置都能拖（拖=移动并落 free 定位 + 记住）；单击开聊 ----
@@ -625,11 +642,11 @@ export default function PetShell({
           style={{ left: menuPos?.x ?? menu.x, top: menuPos?.y ?? menu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button type="button" onClick={() => { onMenu("chat"); setMenu(null); }}>💬 说说话</button>
-          <button type="button" onClick={() => { onMenu("expression"); setMenu(null); }}>🎭 玩个动作</button>
-          <button type="button" onClick={() => { onMenu("config"); setMenu(null); }}>⚙ 动作与设置</button>
+          <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("chat"); setMenu(null); }}>💬 说说话</button>
+          <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("expression"); setMenu(null); }}>🎭 玩个动作</button>
+          <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("config"); setMenu(null); }}>⚙ 动作与设置</button>
           <div className="pet-menu-sep" />
-          <button type="button" className="danger" onClick={() => { onMenu("hide"); setMenu(null); }}>🙈 隐藏轻宜</button>
+          <button type="button" className="danger" onPointerDown={(e) => { e.stopPropagation(); onMenu("hide"); setMenu(null); }}>🙈 隐藏轻宜</button>
           {/*
             v3.9.9 桌面版专属：打开主界面。
             用户反馈："程序叉掉之后找半天都找不到在哪" —— 主窗口关掉后只剩桌宠，
@@ -639,15 +656,15 @@ export default function PetShell({
           {isDesktopPet && (
             <>
               <div className="pet-menu-sep" />
-              <button type="button" onClick={() => { onMenu("openMain"); setMenu(null); }}>🪟 打开主界面</button>
+              <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("openMain"); setMenu(null); }}>🪟 打开主界面</button>
               {/* 用户要求：'退出桌宠之后才是彻底的关闭' —— 放在最后，语义上就是"关掉整个程序" */}
-              <button type="button" className="danger" onClick={() => { onMenu("quit"); setMenu(null); }}>🚪 退出轻待办</button>
+              <button type="button" className="danger" onPointerDown={(e) => { e.stopPropagation(); onMenu("quit"); setMenu(null); }}>🚪 退出轻待办</button>
             </>
           )}
           {dock && (
             <>
               <div className="pet-menu-sep" />
-              <button type="button" onClick={() => { clearPetDock(); setDock(null); setMenu(null); }}>
+              <button type="button" onPointerDown={(e) => { e.stopPropagation(); clearPetDock(); setDock(null); setMenu(null); }}>
                 📍 回右下角
               </button>
             </>
