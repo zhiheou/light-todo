@@ -7,13 +7,21 @@ compatibility_date = "2025-08-01"
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = ["/api/*"]
+# /dl/* 要交给 Worker 处理（从 R2 取安装包），不能落进 SPA 兜底
+run_worker_first = ["/api/*", "/dl/*"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "light-todo"
 database_id = "f8234c90-36d2-46de-b889-e75244e4e9a2"
 migrations_dir = "migrations"
+
+# 桌面版安装包存储（R2）：下载页直链 + 桌面版自动更新的更新源。
+# /dl/* 由 Worker 从桶里取文件返回（见 src/index.js 的 handleDownload）。
+# 这样国内用户也能正常下载（GitHub 在国内很慢/连不上）。
+[[r2_buckets]]
+binding = "DOWNLOADS"
+bucket_name = "light-todo-downloads"
 
 # Workers Paid plan only (free plan hard-caps CPU at 10 ms/request).
 # If legacy scrypt login intermittently hits Error 1102 (exceededCpu), upgrade

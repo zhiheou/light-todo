@@ -259,6 +259,21 @@ function refreshTrayMenu() {
   if (!tray) return;
   const mainVisible = !!mainWin && !mainWin.isDestroyed() && mainWin.isVisible();
   const petVisible = !!petWin && !petWin.isDestroyed() && petWin.isVisible();
+
+  // v3.9.8 更新项：有新版/下载中/等重启时，托盘里直接给入口（用户不用找）
+  const updateItem = (() => {
+    if (updateState.status === "available") {
+      return { label: `⬆️ 有新版本 ${updateState.version}，点击更新`, click: () => void beginUpdateDownload() };
+    }
+    if (updateState.status === "downloading") {
+      return { label: `正在下载更新 ${updateState.percent}%…`, enabled: false };
+    }
+    if (updateState.status === "ready") {
+      return { label: "✅ 更新已就绪，点击重启生效", click: () => installUpdateNow() };
+    }
+    return null;
+  })();
+
   tray.setContextMenu(
     Menu.buildFromTemplate([
       mainVisible
@@ -273,10 +288,32 @@ function refreshTrayMenu() {
           refreshTrayMenu(); // 状态变了，菜单文案跟着更新
         },
       },
+      ...(updateItem ? [{ type: "separator" }, updateItem] : []),
       { type: "separator" },
       { label: "退出（桌宠和窗口一起关掉）", click: () => { quitting = true; app.quit(); } },
     ]),
   );
+}
+
+/** 开始下载更新（托盘与页面共用） */
+async function beginUpdateDownload() {
+  try {
+    const { autoUpdater } = require("electron-updater");
+    await autoUpdater.downloadUpdate();
+  } catch {
+    /* 失败已由 error 事件反映到 updateState */
+  }
+}
+
+/** 立即重启并安装更新 */
+function installUpdateNow() {
+  try {
+    const { autoUpdater } = require("electron-updater");
+    quitting = true; // 放行窗口 close 拦截，否则安装程序替换不了文件
+    autoUpdater.quitAndInstall(false, true);
+  } catch {
+    /* 忽略 */
+  }
 }
 
 // ---------- 桌宠悬停轮询：鼠标进宠物区域 → 接管；移出 → 穿透 ----------
@@ -391,6 +428,87 @@ ipcMain.handle("set-auto-launch", (_e, on) => {
   return app.getLoginItemSettings().openAtLogin;
 });
 
+// ---------- 自动更新（v3.9.8） ----------
+//
+// 用户反馈："为啥每一次更新都是需要重新安装的，正常的应用不应该页面会显示更新，
+// 然后点击更新覆盖什么的吗" —— 对，这是标准能力，之前没做。
+//
+// 更新源用我们自己的域名（/dl/），不依赖 GitHub（国内连不上，用户下载也会卡）。
+// 流程：主进程定时查 /dl/latest.yml → 有新版本就在托盘和窗口里提示 → 用户点更新
+//      → 后台下载 → 下完提示重启 → 自动装好，全程不用手动重装。
+const UPDATE_FEED = `${APP_URL.replace(/\/+$/, "")}/dl/`;
+/** 检查间隔：6 小时（够及时，也不浪费请求） */
+const UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** 更新状态：给页面显示用 */
+let updateState = { status: "idle", version: "", percent: 0, error: "" };
+
+function initAutoUpdate() {
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require("electron-updater"));
+  } catch {
+    return; // 开发环境下没装也不该崩
+  }
+  // 不自动下载：让用户点一下再下（体积 78MB，别偷偷占带宽）
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.setFeedURL({ provider: "generic", url: UPDATE_FEED });
+
+  const push = (patch) => {
+    updateState = { ...updateState, ...patch };
+    // 广播给所有窗口（页面据此显示"发现新版本"横幅）
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send("update-state", updateState);
+    }
+    refreshTrayMenu();
+  };
+
+  autoUpdater.on("update-available", (info) => push({ status: "available", version: info?.version || "" }));
+  autoUpdater.on("update-not-available", () => push({ status: "latest", version: "", percent: 0 }));
+  autoUpdater.on("download-progress", (p) => push({ status: "downloading", percent: Math.round(p?.percent || 0) }));
+  autoUpdater.on("update-downloaded", (info) => push({ status: "ready", version: info?.version || "", percent: 100 }));
+  autoUpdater.on("error", (err) => push({ status: "error", error: String(err?.message || err) }));
+
+  const check = () => {
+    // 只在能连通时静默检查；失败不打扰用户（网络问题不是用户的错）
+    autoUpdater.checkForUpdates().catch(() => {});
+  };
+  setTimeout(check, 15000); // 启动 15 秒后查一次（别和首屏抢资源）
+  setInterval(check, UPDATE_INTERVAL_MS);
+}
+
+/** 页面请求：现在是什么更新状态 / 手动检查 / 开始下载 / 立即重启安装 */
+ipcMain.handle("update-get-state", () => updateState);
+ipcMain.handle("update-check", async () => {
+  try {
+    const { autoUpdater } = require("electron-updater");
+    await autoUpdater.checkForUpdates();
+    return updateState;
+  } catch (err) {
+    updateState = { ...updateState, status: "error", error: String(err?.message || err) };
+    return updateState;
+  }
+});
+ipcMain.handle("update-download", async () => {
+  try {
+    const { autoUpdater } = require("electron-updater");
+    await autoUpdater.downloadUpdate();
+    return updateState;
+  } catch (err) {
+    updateState = { ...updateState, status: "error", error: String(err?.message || err) };
+    return updateState;
+  }
+});
+ipcMain.on("update-install", () => {
+  try {
+    const { autoUpdater } = require("electron-updater");
+    quitting = true; // 放行窗口 close 拦截，让安装程序能替换文件
+    autoUpdater.quitAndInstall(false, true);
+  } catch {
+    /* 忽略：装不了就等下次 */
+  }
+});
+
 // 兜底：6 秒还没收到任何登录态回报（页面加载失败/网络挂起）→ 弹主窗口，
 // 别让用户对着一个不显示任何东西的桌面发呆。
 let loginStateReported = false;
@@ -405,6 +523,7 @@ setTimeout(() => {
 app.whenReady().then(() => {
   createPetWindow(); // 桌宠先起来（页面报登录态后再决定显示/弹登录窗）
   createTray();
+  initAutoUpdate(); // v3.9.8 自动更新：启动后静默检查新版本
   // 屏幕变化（插拔显示器 / 改分辨率 / 改缩放）→ 重新定位并让页面重算尺寸
   screen.on("display-metrics-changed", () => applyPetGeometry());
   screen.on("display-added", () => applyPetGeometry());

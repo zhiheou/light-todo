@@ -241,6 +241,14 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // v3.9.8 桌面版下载 / 自动更新：文件放 R2，走 /dl/* 分发。
+    // 为什么不能直接放 assets（dist）里：Worker 的静态资源上传有体积上限，
+    // 而且我们的 SPA 兜底会把不存在的路径统统回落到 index.html（实测返回 3666 字节的 HTML）。
+    // R2 专门存大文件、免出站流量费，正合适。
+    if (path.startsWith("/dl/")) {
+      return handleDownload(request, workerEnv, path);
+    }
+
     // 非 /api/* 一律交给 assets 绑定（SPA）。index.html 由 assets 提供。
     if (!path.startsWith("/api/")) {
       return workerEnv.ASSETS.fetch(request);
@@ -257,6 +265,52 @@ export default {
     }
   },
 };
+
+/**
+ * 桌面版安装包分发（/dl/*），数据存在 R2。
+ *
+ * 用途有两个：
+ *  1. 下载页给用户的直接下载链接 → /dl/轻待办 Setup 3.9.4.exe
+ *  2. 桌面版**自动更新**：electron-updater 会按 latest.yml 里的路径来取包
+ *     → /dl/latest.yml + /dl/<安装包文件名>
+ *
+ * 未配置 R2 时（绑定不存在）返回 503 + 人话提示，而不是 500，方便排查。
+ */
+async function handleDownload(request, workerEnv, path) {
+  const bucket = workerEnv.DOWNLOADS;
+  if (!bucket) {
+    return new Response("下载服务尚未开通（缺少 R2 绑定）", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  // 路径 → R2 key（去掉前导 /dl/）。注意 URL 里中文会被编码，这里解码回原文件名。
+  let key;
+  try {
+    key = decodeURIComponent(path.slice("/dl/".length));
+  } catch {
+    return new Response("文件名无效", { status: 400 });
+  }
+  // 防目录穿越：R2 的 key 是平铺的，但不允许 .. 之类的相对路径
+  if (!key || key.includes("..") || key.startsWith("/")) {
+    return new Response("文件名无效", { status: 400 });
+  }
+
+  const obj = await bucket.get(key);
+  if (!obj) {
+    return new Response("文件不存在", { status: 404 });
+  }
+
+  const headers = new Headers();
+  obj.writeHttpMetadata(headers); // 带上 content-type 等
+  headers.set("etag", obj.httpEtag);
+  headers.set("cache-control", "public, max-age=300"); // 5 分钟，发新版能较快生效
+  // 安装包是二进制：让浏览器下载而不是内联打开
+  headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(key)}`);
+
+  return new Response(obj.body, { headers });
+}
 
 async function routeApi(request, path, url) {
   const method = request.method;

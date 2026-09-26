@@ -39,7 +39,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "轻待办"
+      "shortcutName": "轻待办",
+      "artifactName": "light-todo-setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -78,11 +79,12 @@
     },
     "publish": [
       {
-        "provider": "github",
-        "owner": "zhiheou",
-        "repo": "light-todo",
-        "releaseType": "release"
+        "provider": "generic",
+        "url": "https://todo.aebuiyke.xyz/dl/"
       }
     ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

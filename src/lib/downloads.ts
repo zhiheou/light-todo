@@ -1,20 +1,22 @@
 // 轻待办 下载地址集中配置
 //
-// 【上线前必须做的一步】把空的换成真实下载链接，否则下载按钮会提示"即将开放"。
-// 获取方式：跑 `bash release/publish.sh`，脚本会把安装包传到 GitHub Releases
-//           并打印出两个链接，填到下面即可。
+// 安装包存放位置：Cloudflare R2（我们自己的域名下发，国内可访问、速度快）。
+// 为什么不用 GitHub Releases：国内连接慢甚至连不上，用户体验差。
 //
-// 为什么放前端常量而不是接口：下载页是静态页，少一次网络请求、断网也能看到说明。
-// 换链接要重新 build + deploy（见 _devlog/README.md）。
+// 【发新版时怎么更新这里】
+//   1. 跑 `bash desktop/scripts/release.sh` —— 自动打包 + 上传到 R2 + 打印新链接
+//   2. 把新链接和版本号填到下面
+//   3. `npm run build` 然后部署（见 _devlog/README.md）
+// 注意：桌面版的**自动更新**不走这里，它读的是 /dl/latest.yml（同一次发布脚本会一起传上去）。
 export const DOWNLOADS = {
-  /** Windows 安装包（NSIS，.exe）· 目标文件名 light-todo-setup-x.y.z.exe */
-  windows: "",
-  /** macOS 安装包（Intel + Apple 芯片通用版，.dmg）· 目标文件名 light-todo-x.y.z-universal.dmg */
+  /** Windows 安装包（NSIS，.exe）· 文件名 light-todo-setup-x.y.z.exe */
+  windows: "https://todo.aebuiyke.xyz/dl/light-todo-setup-3.9.4.exe",
+  /** macOS 安装包（Intel + Apple 芯片通用版，.dmg）· 文件名 light-todo-x.y.z-universal.dmg */
   mac: "",
   /** 版本号（显示用，与桌面版 package.json 的 version 保持一致） */
   version: "3.9.4",
   /** 安装包大小（显示用，留空则不显示） */
-  windowsSize: "",
+  windowsSize: "78 MB",
   macSize: "",
 };
 
