@@ -37,6 +37,119 @@ export function getLocalRevision(): number {
   return revision;
 }
 
+/**
+ * v3.9.22 🔴 登录/注册/恢复会话时，**清空前**用它抓一份水位快照，存进**局部变量**。
+ *
+ * 踩的坑（本 bug 最后一道、也是最隐蔽的一道）：
+ *   这些流程的第一步是 `resetAllLocalData()`（清空 React state，防上个账号残留闪现）。
+ *   但持久化 effect 是 `useEffect(() => saveTasks("work", workTasks), [workTasks])` ——
+ *   **state 一空，下一帧就把 `[]` 写进磁盘**。
+ *   于是等 `handleLogin` 慢吞吞地解密完服务器数据、再回头看水位时，
+ *   桌宠刚记的那条**连同它自己的水位痕迹一起没了**：
+ *   就算后面对 `setWorkTasks(loadTasks("work"))`，读回来的也只是被抹干净的空列表。
+ *   → 守卫还没来得及判断，证据就先被自己人销毁了。
+ *
+ * 所以顺序必须是：**先在内存里记下水位 → 再清**。
+ * 用局部变量而不是模块级全局 —— 全局会被 register/logout 之间的陈旧值污染。
+ */
+export function snapshotWatermark(
+  ...lists: Array<Array<{ updatedAt?: number }> | undefined>
+): number {
+  return Math.max(getLocalRevision(), itemsWatermark(...lists));
+}
+
+/**
+ * v3.9.22 🔴 「认证流程进行中」闸门：这期间**不许把空数据写进磁盘**。
+ *
+ * 光记住水位还不够 —— 清空 state 引发的空写会**在 `await` 解密期间真的落到磁盘上**，
+ * 把桌宠刚记的那条从磁盘上删掉。等守卫回过头 `loadTasks("work")` 想把它读回来，
+ * 读到的已经是被自己人抹干净的空列表了 —— 记不记水位都没用。
+ *
+ * 语义上这也更对：**`resetAllLocalData()` 是"清掉界面上的旧账号残留"，不是"删用户数据"。**
+ * 登出那种真要删的场景，`handleLogout` 自己会显式删键，不靠这个。
+ */
+let authTransitionDepth = 0;
+
+export function beginAuthTransition(): void {
+  authTransitionDepth += 1;
+}
+
+export function endAuthTransition(): void {
+  authTransitionDepth = Math.max(0, authTransitionDepth - 1);
+}
+
+export function authTransitionActive(): boolean {
+  return authTransitionDepth > 0;
+}
+
+/**
+ * 登出时清掉本窗口的水位。
+ * 不变量：**登出 = 本机没有需要保护的数据**。
+ * 否则登出触发的空写会把水位顶到"现在"，重登同账号时又会被判成"本机更新"而留住空列表。
+ */
+export function resetLocalRevision(): void {
+  revision = 0;
+}
+
+// ---------- 本机数据归属（防串号） ----------
+
+/**
+ * v3.9.22：本机这份数据**属于哪个账号**。
+ *
+ * "本机数据更新就留住本机、别被服务器旧数据盖掉"这类分支，
+ * 只有在"本机数据确实是当前登录这个账号的"前提下才安全。不加这道判断会**串号**：
+ * 上一个账号登出/会话过期后数据还留在盘上 → 换一个账号登录 →
+ * 把上一账号的待办当成"本机更新的数据"留下来并上传到新账号。
+ *
+ * ⚠️ 认领规则（两处都要，缺一会让修复失效）：
+ *   · 主窗口：登录/注册/恢复会话成功时认领，**且只在"本机数据的水位胜过服务器"时才认领**
+ *     （否则新设备上会拦住服务器数据，见 App.tsx 的 handleLogin）
+ *   · 桌宠窗口：**主动写数据时认领** —— 用户可能只开过桌宠没登录过主窗口，
+ *     不认领的话它记的待办照样会被主窗口登录时当成"别人的数据"清掉，本 bug 原样复发
+ */
+const OWNER_KEY = "lighttodo:local-owner:v1";
+
+/** 新手引导标记（每个用过的账号一个）—— 老装机没有归属键时，用它回溯判断"这台机器是谁在用" */
+const ONBOARDED_PREFIX = "lighttodo:onboarded:v1:";
+
+export function localDataOwner(): string | null {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(OWNER_KEY);
+  } catch {
+    return null;
+  }
+  if (stored) return stored;
+  /**
+   * 老装机回溯：v3.9.22 之前没有归属键，但"这台机器用过哪个账号"有痕迹 ——
+   * 新手引导按账号留下了 `lighttodo:onboarded:v1:<用户名>`。
+   * **恰好只有一个**时才认（两个以上说明换过账号，无法判断 → 返回 null 走安全路径）。
+   * 登出的兜底清扫会删掉这些键，所以换账号后这里自然失效，不会串号。
+   */
+  try {
+    const names = new Set<string>();
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(ONBOARDED_PREFIX)) names.add(k.slice(ONBOARDED_PREFIX.length));
+    }
+    return names.size === 1 ? [...names][0] : null;
+  } catch {
+    return null;
+  }
+}
+
+export function localOwnedBy(username: string): boolean {
+  return localDataOwner() === username;
+}
+
+export function claimLocalData(username: string): void {
+  try {
+    localStorage.setItem(OWNER_KEY, username);
+  } catch {
+    /* 隐私模式等，忽略 */
+  }
+}
+
 export type ExternalWriteListener = () => void;
 
 const listeners = new Set<ExternalWriteListener>();

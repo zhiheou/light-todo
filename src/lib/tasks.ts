@@ -1,6 +1,6 @@
 import type { Mode, RepeatFreq, RepeatRule, Task, ViewFilter, SortMode } from "../types";
 import { nextOccurrence, toDateString } from "./repeat";
-import { bumpLocalRevision } from "./syncLock";
+import { authTransitionActive, bumpLocalRevision } from "./syncLock";
 
 const WORK_KEY = "lighttodo:work:v1";
 const PERSONAL_KEY = "lighttodo:personal:v1";
@@ -204,6 +204,16 @@ export function saveTasks(mode: Mode, tasks: Task[]): void {
   // 挂载时"把刚读出来的东西原样写回去"不是改动，不能抬高水位。
   // 否则主窗口一启动水位就是"现在"，服务器数据再也同步不进来（多端同步会静默失效）。
   const prev = lastWritten[mode] !== undefined ? lastWritten[mode] : localStorage.getItem(key);
+  /**
+   * v3.9.22 🔴 登录/注册/恢复会话期间的写盘一律不落盘。
+   * 那些流程开头会 `resetAllLocalData()` 清空 state，持久化 effect 随即把空列表写下来 ——
+   * 那是"清界面残留"，**不是用户删数据**。真写下去就会把桌宠刚记的待办从磁盘删掉，
+   * 等守卫回头 `loadTasks()` 想读回来时已经晚了（详见 syncLock.ts 的 beginAuthTransition）。
+   *
+   * ⚠️ 必须在**更新 `lastWritten` 之前**返回：否则这次被拦下的写会被记成"已经写过"，
+   * 关闸后真正的写反而被去重逻辑当成重复而跳过 —— 磁盘会永远停在旧值上。
+   */
+  if (authTransitionActive()) return;
   lastWritten[mode] = json;
   // 内容没变就到此为止 —— 否则「另一个窗口改了 → 本窗口重读 → 又写回去」会无限对写
   if (prev === json) return;

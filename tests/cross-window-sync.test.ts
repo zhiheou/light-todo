@@ -316,6 +316,153 @@ describe("备忘走同一套跨窗口保护", () => {
   });
 });
 
+// ---------- 6. 本机数据归属（防串号） ----------
+
+describe("归属：留住本机数据之前，必须先确认这台机器是当前账号在用", () => {
+  it("认领后归属正确", async () => {
+    const { claimLocalData, localOwnedBy, localDataOwner } = await import("../src/lib/syncLock");
+    claimLocalData("忽晚ya");
+    expect(localDataOwner()).toBe("忽晚ya");
+    expect(localOwnedBy("忽晚ya")).toBe(true);
+    expect(localOwnedBy("别人")).toBe(false);
+  });
+
+  it("【防串号】没认领过的账号，不许认领本机数据", async () => {
+    const { claimLocalData, localOwnedBy } = await import("../src/lib/syncLock");
+    claimLocalData("甲");
+    // 乙登录 → 本机盘上是甲的数据 → 绝不能被当成"乙的本机数据"留下来并上传
+    expect(localOwnedBy("乙")).toBe(false);
+  });
+
+  it("【老装机回溯】只有一个引导标记时，能认出来这台机器是谁在用", async () => {
+    // v3.9.22 之前没有归属键，但新手引导按账号留了痕迹
+    store.setItem("lighttodo:onboarded:v1:忽晚ya", "1");
+    const { localDataOwner, localOwnedBy } = await import("../src/lib/syncLock");
+    expect(localDataOwner()).toBe("忽晚ya");
+    expect(localOwnedBy("忽晚ya")).toBe(true);
+  });
+
+  it("【防串号】引导标记不止一个（换过账号）→ 判不出来，走安全路径", async () => {
+    store.setItem("lighttodo:onboarded:v1:甲", "1");
+    store.setItem("lighttodo:onboarded:v1:乙", "1");
+    const { localDataOwner, localOwnedBy } = await import("../src/lib/syncLock");
+    expect(localDataOwner()).toBeNull();
+    expect(localOwnedBy("甲")).toBe(false);
+    expect(localOwnedBy("乙")).toBe(false);
+  });
+
+  it("有归属键时以归属键为准，忽略引导标记", async () => {
+    store.setItem("lighttodo:onboarded:v1:旧账号", "1");
+    const { claimLocalData, localDataOwner } = await import("../src/lib/syncLock");
+    claimLocalData("新账号");
+    expect(localDataOwner()).toBe("新账号");
+  });
+
+  it("没有归属键、也没有引导标记（全新装机）→ 判不出来", async () => {
+    const { localDataOwner } = await import("../src/lib/syncLock");
+    expect(localDataOwner()).toBeNull();
+  });
+});
+
+// ---------- 7. 登录那一刻不许把桌宠记的抹掉（真事故路径） ----------
+
+describe("认证流程期间不许落盘（否则登录一下就把桌宠刚记的删了）", () => {
+  /**
+   * 🔴 这是真事故的**最后一道**、也是最隐蔽的一道。
+   * 登录/注册/恢复会话开头都会 `resetAllLocalData()` 清空 state（防上个账号残留闪现），
+   * 而持久化 effect 是 `useEffect(() => saveTasks("work", workTasks), [workTasks])` ——
+   * **state 一空，下一帧就把 `[]` 写进磁盘**。
+   * 于是桌宠刚记的那条，在 `await` 解密服务器数据的那段时间里
+   * **连它自己的水位痕迹一起被从磁盘上删掉了** —— 守卫回头再想读回来，读到的是空列表。
+   * 光"记住水位"不够，必须**根本不让这次空写落盘**。
+   */
+  it("【本次事故】清空 state 引发的空写，在认证期间必须被拦住", async () => {
+    const { saveTasks, loadTasks } = await import("../src/lib/tasks");
+    const { beginAuthTransition, endAuthTransition } = await import("../src/lib/syncLock");
+
+    // 桌宠刚记的一条
+    saveTasks("work", [
+      {
+        id: "vivo",
+        title: "要跟进vivo锁机事项",
+        notes: "",
+        priority: 3,
+        dueDate: "",
+        dueTime: "",
+        remindAt: "",
+        completed: false,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ] as never);
+    expect(loadTasks("work")).toHaveLength(1);
+
+    // 用户在主窗口登录 → 开闸 → resetAllLocalData() 把 state 清空 → 空写
+    beginAuthTransition();
+    saveTasks("work", [] as never);
+
+    // 闸门内这次空写不能落到磁盘上
+    expect(loadTasks("work")).toHaveLength(1);
+    expect((loadTasks("work")[0] as { title: string }).title).toBe("要跟进vivo锁机事项");
+
+    // 解密完成、守卫判完，关闸 → 之后的写恢复正常
+    endAuthTransition();
+    saveTasks("work", []);
+    expect(loadTasks("work")).toHaveLength(0);
+  });
+
+  it("【本次事故】关闸后，登录判据能读到「清空前」的水位（磁盘此刻已被清空）", async () => {
+    const { saveTasks } = await import("../src/lib/tasks");
+    const {
+      beginAuthTransition,
+      endAuthTransition,
+      snapshotWatermark,
+      dataWatermark,
+    } = await import("../src/lib/syncLock");
+    const { loadTasks } = await import("../src/lib/tasks");
+    const { loadWorkMemos } = await import("../src/lib/memos");
+
+    await new Promise((r) => setTimeout(r, 3));
+    const stamp = Date.now();
+    saveTasks("work", [
+      {
+        id: "vivo",
+        title: "要跟进vivo锁机事项",
+        notes: "",
+        priority: 3,
+        dueDate: "",
+        dueTime: "",
+        remindAt: "",
+        completed: false,
+        createdAt: stamp,
+        updatedAt: stamp,
+      },
+    ] as never);
+
+    // 登录流程：先抓水位快照，再清
+    const waterBeforeReset = snapshotWatermark(loadTasks("work"), loadWorkMemos());
+    beginAuthTransition();
+    saveTasks("work", [] as never);
+    endAuthTransition();
+
+    // 磁盘此刻是空的（快照被拦住了，但 state 确实清过），
+    // 判据只能用快照 —— 否则会得出"本机没数据"而放服务器旧数据进来
+    const serverData = { workTasks: [{ updatedAt: stamp - 60_000 }] };
+    expect(waterBeforeReset).toBeGreaterThan(dataWatermark(serverData));
+  });
+
+  it("登出会清零水位（否则重登同账号会被判成「本机更新」，留住一个空列表）", async () => {
+    const { saveTasks } = await import("../src/lib/tasks");
+    const { getLocalRevision, resetLocalRevision } = await import("../src/lib/syncLock");
+
+    saveTasks("work", [{ id: "x", title: "甲", updatedAt: 1, createdAt: 1 }] as never);
+    expect(getLocalRevision()).toBeGreaterThan(0);
+
+    resetLocalRevision();
+    expect(getLocalRevision()).toBe(0);
+  });
+});
+
 // ---------- 5. 订阅机制 ----------
 
 describe("订阅：storage 事件到达时，订阅者必须被叫醒", () => {

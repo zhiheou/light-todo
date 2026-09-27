@@ -1,5 +1,5 @@
 import type { Memo, Mode } from "../types";
-import { bumpLocalRevision } from "./syncLock";
+import { authTransitionActive, bumpLocalRevision } from "./syncLock";
 
 const WORK_KEY = "lighttodo:work-memos:v1";
 const PERSONAL_KEY = "lighttodo:personal-memos:v1";
@@ -95,6 +95,10 @@ function saveMemosByMode(mode: Mode, memos: Memo[]): void {
   const key = mode === "work" ? WORK_KEY : PERSONAL_KEY;
   const json = JSON.stringify(memos);
   const prev = lastWritten.get(mode) ?? localStorage.getItem(key);
+  // v3.9.22：认证流程进行中不落盘 —— 那是"清界面残留"引发的空写，不是用户删数据。
+  // 写下去会把桌宠刚记的备忘从磁盘删掉（详见 syncLock.ts 的 beginAuthTransition）。
+  // ⚠️ 必须在更新 lastWritten 之前返回，否则关闸后的真写会被当成重复而跳过
+  if (authTransitionActive()) return;
   lastWritten.set(mode, json);
   if (prev === json) return;
   bumpLocalRevision();

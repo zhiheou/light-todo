@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Mode, Task, Memo } from "../types";
 import { loadTasks, saveTasks } from "../lib/tasks";
 import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
+import { claimLocalData } from "../lib/syncLock";
+import { getStoredSession } from "../lib/session";
 import MascotAssistant from "./MascotAssistant";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
 import {
@@ -25,7 +27,6 @@ import {
 export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks(mode as Mode));
   const [memos, setMemos] = useState<Memo[]>(() => loadWorkMemos());
-
   // 桌面模式：整页透明（Electron 才能看到"只有宠物"）
   useEffect(() => {
     document.documentElement.classList.add("desktop-pet-mode");
@@ -44,6 +45,25 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   useEffect(() => {
     saveWorkMemos(memos);
   }, [memos]);
+
+  /**
+   * v3.9.22：本窗口**真的写数据时**，声明本机这份数据归当前账号。
+   *
+   * 为什么必须在这里认领：用户可能只开着桌宠、从没在主窗口登录过
+   * （主窗口的会话过期后就是登录页）。主窗口登录时会判"本机数据是不是本账号的"——
+   * 不认领的话，桌宠刚记的待办会被当成"上个账号的残留"清掉，本 bug 原样复发。
+   *
+   * 只在"从空变成有"时认领一次：不能每次写都认领，
+   * 否则另一个账号登录后本窗口一写就把归属抢回来了。
+   */
+  const claimed = useRef(false);
+  useEffect(() => {
+    if (claimed.current || tasks.length === 0) return;
+    const stored = getStoredSession();
+    if (!stored) return;
+    claimed.current = true;
+    claimLocalData(stored.username);
+  }, [tasks]);
 
   // v3.9 与主窗口同步：主窗口改了数据（同源 localStorage）→ 本窗口跟着更新
   //
