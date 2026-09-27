@@ -195,3 +195,10 @@ if (errors.length > 0) {
 }
 
 console.log("✅ desktop/main.js 运行自检通过（加载 + 定时器 + IPC 全部正常）");
+
+/**
+ * 必须**强制退出**：自检跑 main.js 时会真的 spawn 出 PowerShell 鼠标监听子进程，
+ * 它不会自己结束 → node 进程被挂住、永远不退出（我实测过，脚本跑 5 分钟不返回）。
+ * process.exit 会一并带走子进程。
+ */
+process.exit(0);

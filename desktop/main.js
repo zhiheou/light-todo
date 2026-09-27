@@ -515,6 +515,12 @@ function startPetHoverWatch() {
     // 与 getPosition()/getBounds() 同单位，**不需要也不应该再除以 scaleFactor**。
     // 之前除了缩放比，导致 125%/150% 缩放的机器上判定区域整体偏移几百像素：
     // 看得见宠物却点不中，而宠物旁边的空白反被接管（点不到桌面图标）。
+    //
+    // ⚠️ 注意：下面这几个 const 曾经被我误删过**两次**，每次都导致"程序一打开就崩"
+    // （ReferenceError: mx is not defined）。删掉它们之前先想清楚。
+    const display = displayForPet();
+    const { x: mx, y: my } = screen.getCursorScreenPoint();
+    const [wx, wy] = petWin.getPosition();
     const rx = mx - wx;
     const ry = my - wy;
     const scale = display.scaleFactor || 1; // 仅供调试输出/其它逻辑参考，不参与坐标换算
