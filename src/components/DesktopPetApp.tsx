@@ -8,6 +8,7 @@ import {
   hasStoredSession,
   isDesktopApp,
   reportLoginState,
+  startAutoHitAreaScan,
   startHitAreaHeartbeat,
   startMouseHeldWatch,
 } from "../lib/desktopBridge";
@@ -74,6 +75,9 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
     if (!isDesktopApp()) return;
     startHitAreaHeartbeat();
     startMouseHeldWatch(); // v3.9.13：按住鼠标键期间保持接管，防 mouseup 落到桌面
+    // v3.9.17：自动扫描所有浮层（设置面板/菜单/召回按钮/聊天面板）并登记为可点击区域 ——
+    // 治本：这类"漏登记导致点了没反应"已经犯过 4 次，不再靠人记得手动加。
+    startAutoHitAreaScan();
   }, []);
 
   /**

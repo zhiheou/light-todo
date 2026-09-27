@@ -208,6 +208,71 @@ export function startMouseHeldWatch(): void {
 }
 
 /**
+ * v3.9.17 🔴 通用兜底：把页面上**所有可见的浮层**自动登记为可点击区域。
+ *
+ * 为什么做这个（血泪教训）：桌面版桌宠窗铺满整屏 + 鼠标穿透，**任何能点的东西
+ * 都必须登记**，漏一个就"点了没反应、点到桌面去了"。而这个"漏登记"已经犯了 4 次：
+ *   ① 右键菜单 `.pet-menu`      ② 召回按钮 `.pet-summon`
+ *   ③ 聊天面板 `.mascot-panel`  ④ 动作与设置面板 `.pet-config`
+ * 每次都是用户报上来才补。所以改成**自动扫描**：
+ * 任何带这些类名的元素一出现就被登记，不用再靠人记得加。
+ *
+ * 实现：用 MutationObserver 监听 DOM 变化 + 定时兜底扫描，
+ * 把所有匹配的可见元素的位置合并登记到 "auto-layers" 这一个来源下。
+ * 手动登记的（宠物/菜单/面板）仍然保留，两者取并集。
+ */
+const AUTO_LAYER_SELECTORS = [
+  ".pet-config", // 动作与设置面板（形态馆/皮肤/行为）
+  ".pet-menu", // 桌宠右键菜单
+  ".pet-summon", // 召回按钮
+  ".mascot-panel", // 聊天面板
+  ".pet-microtip", // 灵动小字气泡
+];
+
+export function startAutoHitAreaScan(): void {
+  if (typeof window === "undefined" || typeof MutationObserver === "undefined") return;
+
+  const scan = () => {
+    const rects: Rect[] = [];
+    for (const sel of AUTO_LAYER_SELECTORS) {
+      document.querySelectorAll(sel).forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          rects.push({ x: r.x, y: r.y, w: r.width, h: r.height });
+        }
+      });
+    }
+    if (rects.length === 0) {
+      registerHitArea("auto-layers", null);
+      return;
+    }
+    // 合并成一个包围盒（这些浮层通常挨在一起；分开登记会让主进程要处理很多矩形）
+    let x1 = Infinity;
+    let y1 = Infinity;
+    let x2 = -Infinity;
+    let y2 = -Infinity;
+    for (const r of rects) {
+      x1 = Math.min(x1, r.x);
+      y1 = Math.min(y1, r.y);
+      x2 = Math.max(x2, r.x + r.w);
+      y2 = Math.max(y2, r.y + r.h);
+    }
+    registerHitArea("auto-layers", { x: x1, y: y1, w: x2 - x1, h: y2 - y1 });
+  };
+
+  // 1) DOM 变化时扫描（面板开/关、菜单弹出等）
+  try {
+    const mo = new MutationObserver(() => scan());
+    mo.observe(document.body, { childList: true, subtree: true });
+  } catch {
+    /* 忽略 */
+  }
+  // 2) 定时兜底（有些变化不触发 MutationObserver，比如 CSS 动画/位置变化）
+  window.setInterval(scan, 500);
+  scan();
+}
+
+/**
  * 定时重发当前的可点区域（保险机制）。
  *
  * 为什么需要：主进程靠"页面上报的矩形"判定要不要接管鼠标，而上报只在**变化时**才发。
