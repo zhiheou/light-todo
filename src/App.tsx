@@ -51,11 +51,17 @@ import {
   seedMemos,
 } from "./lib/memos";
 import {
+  beginAuthTransition,
   bumpLocalRevision,
+  claimLocalData,
   dataWatermark,
+  endAuthTransition,
   ensureExternalWriteWatch,
   getLocalRevision,
   itemsWatermark,
+  localOwnedBy,
+  resetLocalRevision,
+  snapshotWatermark,
   subscribeExternalWrite,
 } from "./lib/syncLock";
 import { loadWorkDimensions, saveWorkDimensions } from "./lib/dimensionsLocal";
@@ -115,6 +121,21 @@ interface ToastState {
  */
 function localWatermark(): number {
   return Math.max(getLocalRevision(), itemsWatermark(loadTasks("work"), loadWorkMemos()));
+}
+
+/**
+ * v3.9.22 🔴 登录/注册/恢复会话在 `resetAllLocalData()` **之前**必须调这个，把返回值存进局部变量。
+ *
+ * `resetAllLocalData()` 清空 state 后，持久化 effect
+ * （`useEffect(() => saveTasks("work", workTasks), [workTasks])`）会**立刻把空列表写进磁盘**，
+ * 把"桌宠刚记的那条"连同它自己的水位痕迹一起抹掉 ——
+ * 之后守卫再想读"本机数据是不是更新"，读到的已经是被自己人清空的盘子，形同虚设。
+ * （真事故路径：会话过期 → 主窗口停在登录页 → 用户在桌宠里记待办 → 回主窗口登录 → 待办没了）
+ *
+ * 所以：**先记水位，再清**，返回值一路带到守卫那里用。
+ */
+function watermarkBeforeReset(): number {
+  return snapshotWatermark(loadTasks("work"), loadWorkMemos());
 }
 
 function dateKey(d: Date): string {
@@ -797,6 +818,9 @@ export default function App() {
       const keySalt = newKeySalt();
       // 高危修复：新账号初始数据 = 全新 seed，绝不从残留 UI state 里 collect（会串上一账号数据）
       const now = new Date();
+      // 🔴 开闸：注册流程里 resetAllLocalData() 引发的空写不许落盘（见 syncLock.ts 的 beginAuthTransition）
+      beginAuthTransition();
+      try {
       const fresh: AppData = {
         workTasks: seedTasks("work", now),
         workMemos: seedMemos("work"),
@@ -813,6 +837,7 @@ export default function App() {
       saveStoredSession({ username, password, keySalt });
       // 清掉任何残留旧账号数据，载入这份全新数据，避免界面闪旧账号内容
       resetAllLocalData();
+      claimLocalData(username); // v3.9.22：新号认领本机数据（换号时保护自动失效，防串号）
       setWorkTasks(fresh.workTasks);
       setWorkMemos(fresh.workMemos);
       setAccount({ username });
@@ -822,6 +847,9 @@ export default function App() {
       setAuthState("in");
       setView("today");
       showToast("账号已创建，数据已加密同步");
+      } finally {
+        endAuthTransition();
+      }
     },
     [resetAllLocalData, showToast],
   );
@@ -840,8 +868,14 @@ export default function App() {
 
   const handleLogin = useCallback(
     async (username: string, password: string) => {
+      // 🔴 开闸：这期间 resetAllLocalData() 引发的空写不许落盘（会把桌宠刚记的待办从磁盘删掉）。
+      // 闸门必须在**第一次 await 之前**打开，否则 await 期间空写就落下去了。
+      beginAuthTransition();
+      try {
       const login = await loginAccount(username, password);
       const workspace = await fetchWorkspace();
+      // ⚠️ 顺序要紧：**先记水位，再清 state**（清空会把磁盘上的新数据抹掉，见 watermarkBeforeReset）
+      const waterBeforeReset = watermarkBeforeReset();
       // 先清空本地数据 state，避免上一账号残留闪现/被误当本账号数据
       resetAllLocalData();
       if (workspace?.data && workspace.iv) {
@@ -852,7 +886,30 @@ export default function App() {
           username,
         );
         if (!data) throw new Error("数据解密失败，请确认账号密码正确");
-        applyAppData(data);
+        /**
+         * v3.9.22 🔴 本机有更新的数据时，**不要**用服务器旧数据盖掉它。
+         *
+         * 真实事故：用户在桌宠里说了「明天要跟进vivo锁机事项」，轻宜当场写盘并回"记下了"；
+         * 紧接着用户在主窗口登录（那个窗口的会话已过期）—— 这一下
+         * `resetAllLocalData()` + 自动保存就把刚记的那条**写没了**。
+         * 用户看到的就是"它说记了，待办里根本没有"。
+         *
+         * 判据同拉取 effect：本地水位（含桌宠窗口写的）更新 → 留住本机，让自动上传把它推到服务器。
+         */
+        // 清空前的快照才是真水位 —— 此刻磁盘已被 state 清空写过一轮，
+        // 现读会读到空的（见 watermarkBeforeReset）
+        const localMark = waterBeforeReset;
+        // ⚠️ 这个分支**同时也是"认领"条件**：本机数据比服务器新，才认为这台机器是"本账号在用"。
+        // 不能无条件认领 —— 换台新电脑登录时本机是空的，认领了会把服务器数据永远挡在外面。
+        if (localOwnedBy(username) && localMark > dataWatermark(data)) {
+          setWorkTasks(loadTasks("work"));
+          setWorkMemos(loadWorkMemos());
+          setWorkDimensions(loadWorkDimensions());
+          setWorkGoals(loadWorkGoals());
+          claimLocalData(username);
+        } else {
+          applyAppData(data);
+        }
       } else {
         // 账号无数据（罕见：老空号）→ 用全新 seed，绝不从残留 state 收集
         const now = new Date();
@@ -881,6 +938,10 @@ export default function App() {
       setAuthState("in");
       setView("today");
       showToast("登录成功，数据已同步");
+      } finally {
+        // 关闸后自动保存 effect 会把最终 state 落盘（水位已由 bumpLocalRevision 登记）
+        endAuthTransition();
+      }
     },
     [applyAppData, resetAllLocalData, showToast],
   );
@@ -890,6 +951,9 @@ export default function App() {
   // 服务端数据在后台解密核对，不一致才覆盖。完整校验仍由 30s 轮询兜底。
   const handleSessionRestore = useCallback(
     async (stored: { username: string; password: string; keySalt: string }) => {
+      // 🔴 开闸：恢复会话同样会 resetAllLocalData()（见 syncLock.ts 的 beginAuthTransition）
+      beginAuthTransition();
+      try {
       const workspace = await fetchWorkspace();
       if (!workspace) throw new Error("无法读取工作区");
       // 缓存命中（同一浏览器会话内刚完整校验过）→ 不走 PBKDF2，直接解密出首屏
@@ -914,12 +978,14 @@ export default function App() {
         // 有密文却解不开：密钥/会话已失效，交回完整登录流程去校验
         throw new Error("会话已失效");
       }
+      // ⚠️ 顺序要紧：**先记水位，再清 state**（见 watermarkBeforeReset）
+      const waterBeforeReset = watermarkBeforeReset();
       resetAllLocalData();
       if (data) {
         // v3.9.22：本机数据更新（比如刚在桌宠窗口里记的待办）→ 先留住，交给后台核对/自动上传推到服务器。
         // 否则这一下"用服务器数据铺首屏"就会把它抹掉。
-        const localMark = localWatermark();
-        if (localMark > dataWatermark(data)) {
+        const localMark = waterBeforeReset;
+        if (localOwnedBy(stored.username) && localMark > dataWatermark(data)) {
           setWorkTasks(loadTasks("work"));
           setWorkMemos(loadWorkMemos());
         } else {
@@ -947,7 +1013,9 @@ export default function App() {
       // v3.9.22：允许覆盖的条件从"本窗口没编辑过"改成"**没有谁比服务端更新**" ——
       // 本地水位包含桌宠窗口写的那份数据（见 lib/syncLock.ts），
       // 否则用户刚在桌宠里记的待办，会被这里恢复出来的旧数据抹掉。
-      const localMark = localWatermark();
+      // 用清空前的快照 `waterBeforeReset`：`resetAllLocalData()` 已经把磁盘写成空的了，
+      // 现读磁盘得到的水位是错的（见 watermarkBeforeReset）。
+      const localMark = waterBeforeReset;
       void (async () => {
         try {
           const latest = await fetchWorkspace();
@@ -958,11 +1026,16 @@ export default function App() {
             stored.keySalt,
             stored.username,
           );
+          // 服务端更新才覆盖；本机（含桌宠窗口写的）更新就留住本机，
+          // 交给自动保存 effect 推到服务器（见 syncLock.ts）
           if (fresh && dataWatermark(fresh) >= localMark) applyAppData(fresh);
         } catch {
           // 网络抖动忽略；密码错误时后续轮询会持续失败
         }
       })();
+      } finally {
+        endAuthTransition();
+      }
     },
     [applyAppData, collectAppData, resetAllLocalData],
   );
@@ -975,6 +1048,9 @@ export default function App() {
     }
     clearStoredSession();
     clearKeyCache(); // 安全：清掉上个账号的密钥缓存，杜绝串号
+    // v3.9.22：登出后本机水位清零 —— 登出=本机不该再有要保护的数据，
+    // 否则登出引发的空写会把水位顶到"现在"，重登同账号时被判成"本机更新"→ 留住空列表
+    resetLocalRevision();
     localStorage.removeItem("lighttodo:work:v1");
     localStorage.removeItem("lighttodo:work-memos:v1");
     localStorage.removeItem("lighttodo:work-dimensions:v1");
