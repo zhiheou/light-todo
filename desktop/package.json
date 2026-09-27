@@ -9,10 +9,10 @@
     "dev": "cross-env LIGHT_TODO_URL=http://localhost:1420 electron main.js",
     "icons": "node scripts/make-icons.mjs",
     "pack": "electron-builder --win --dir",
-    "dist": "node scripts/check-undefined.mjs && electron-builder --win",
-    "dist:mac": "node scripts/check-undefined.mjs && electron-builder --mac",
-    "dist:all": "node scripts/check-undefined.mjs && electron-builder --win --mac",
-    "check": "node scripts/check-undefined.mjs"
+    "dist": "node scripts/smoke-main.mjs && node scripts/check-undefined.mjs && electron-builder --win",
+    "dist:mac": "node scripts/smoke-main.mjs && node scripts/check-undefined.mjs && electron-builder --mac",
+    "dist:all": "node scripts/smoke-main.mjs && node scripts/check-undefined.mjs && electron-builder --win --mac",
+    "check": "node scripts/smoke-main.mjs && node scripts/check-undefined.mjs"
   },
   "devDependencies": {
     "electron": "^33.4.11",

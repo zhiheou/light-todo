@@ -9,7 +9,7 @@ import { petChatter } from "../lib/petChatter";
 import { clearPetDock, loadPetDock, savePetDock } from "../lib/petSkin";
 import { registerHitArea, setMouseTakeover } from "../lib/desktopBridge";
 
-export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain" | "quit";
+export type PetMenuAction = "chat" | "expression" | "config" | "hide" | "openMain" | "quit" | "diagnose";
 
 export interface PetShellProps {
   mode: "work" | "personal";
@@ -724,6 +724,8 @@ export default function PetShell({
               <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("openMain"); setMenu(null); }}>🪟 打开主界面</button>
               {/* 用户要求：'退出桌宠之后才是彻底的关闭' —— 放在最后，语义上就是"关掉整个程序" */}
               <button type="button" className="danger" onPointerDown={(e) => { e.stopPropagation(); onMenu("quit"); setMenu(null); }}>🚪 退出轻待办</button>
+              {/* v3.9.15 诊断：拖不动/点不动时，点它录 10 秒，结果自动进剪贴板 */}
+              <button type="button" onPointerDown={(e) => { e.stopPropagation(); onMenu("diagnose"); setMenu(null); }}>🔍 拖不动？点这个</button>
             </>
           )}
           {dock && (

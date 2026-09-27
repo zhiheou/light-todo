@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld("petAPI", {
   /** 开机自启 */
   getAutoLaunch: () => ipcRenderer.invoke("get-auto-launch"),
   setAutoLaunch: (on) => ipcRenderer.invoke("set-auto-launch", on),
+  /** v3.9.15 诊断：读取主进程关键状态（排查"点不动/拖不动"用） */
+  getDebugState: () => ipcRenderer.invoke("pet-debug-state"),
   /** 是否桌面版（页面据此启用桌面专属行为） */
   isDesktop: true,
 });

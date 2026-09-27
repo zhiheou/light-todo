@@ -437,6 +437,64 @@ let lockWatchdog = null;
  */
 let mouseHeld = false;
 
+/**
+ * v3.9.15 🔴 系统级鼠标按键监听（Windows）。
+ *
+ * 为什么必须加（用户报"拖到一半拖不动了"，实测断点在 `lostpointercapture`）：
+ * 拖拽时鼠标必然**跑在宠物前面**，一旦判定"鼠标不在宠物上"就切穿透 →
+ * pointer capture 立即失效 → 拖拽中断。
+ * 而"页面侧上报按键状态"这条路在关键时刻不可靠（捕获丢了，页面自己也收不到事件）。
+ * 所以主进程**直接问系统**：起一个常驻 PowerShell 读 `GetAsyncKeyState`，
+ * 状态一变就通知 —— 只要鼠标键按着，就绝不切回穿透。
+ * 非 Windows 或启动失败时自动降级（仍靠页面侧上报）。
+ */
+let mouseButtonWatcher = null;
+
+function startMouseButtonWatcher() {
+  if (process.platform !== "win32" || mouseButtonWatcher) return;
+  try {
+    const { spawn } = require("child_process");
+    const script = [
+      "Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern short GetAsyncKeyState(int vKey);' -Name K -Namespace W",
+      '$last = ""',
+      "while ($true) {",
+      "  $l = ([W.K]::GetAsyncKeyState(0x01) -band 0x8000) -ne 0",
+      "  $r = ([W.K]::GetAsyncKeyState(0x02) -band 0x8000) -ne 0",
+      "  $m = ([W.K]::GetAsyncKeyState(0x04) -band 0x8000) -ne 0",
+      '  $cur = "$l$r$m"',
+      "  if ($cur -ne $last) { Write-Output $cur; [Console]::Out.Flush(); $last = $cur }",
+      "  Start-Sleep -Milliseconds 15",
+      "}",
+    ].join("\n");
+
+    mouseButtonWatcher = spawn(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true },
+    );
+    let buf = "";
+    mouseButtonWatcher.stdout.on("data", (chunk) => {
+      buf += chunk.toString();
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        // 形如 TrueFalseFalse —— 任一为 True 即"有键按着"
+        mouseHeld = t.includes("True");
+        if (mouseHeld && petWin && !petWin.isDestroyed()) {
+          ignoreState = false;
+          petWin.setIgnoreMouseEvents(false);
+        }
+      }
+    });
+    mouseButtonWatcher.on("error", () => { mouseButtonWatcher = null; });
+    mouseButtonWatcher.on("exit", () => { mouseButtonWatcher = null; });
+  } catch {
+    mouseButtonWatcher = null; // 降级：仍靠页面侧上报
+  }
+}
+
 function startPetHoverWatch() {
   if (hoverTimer) clearInterval(hoverTimer);
   hoverTimer = setInterval(() => {
@@ -476,6 +534,19 @@ function startPetHoverWatch() {
       ignoreState = false;
       petWin.setIgnoreMouseEvents(false);
     } else if (!inside && !ignoreState) {
+      /**
+       * v3.9.15 🔴 拖拽期间**绝不切回穿透**（用户报"拖到一半就拖不动了"的根治）。
+       *
+       * 实测证据：真实拖动时事件序列是
+       *   pointerdown → 12 次 pointermove（一路跟随）→ **lostpointercapture**（断掉）
+       * 断开点：鼠标跑到宠物**前面约 280px** 处 —— 那一刻鼠标已不在宠物矩形内，
+       * 旧逻辑立刻把窗口设回穿透 → pointer capture 立即失效 → 后续移动收不到 → 拖拽中断。
+       *
+       * 拖拽的判定标准是"**鼠标键按着**"，不是"鼠标在宠物上"：
+       * 只要按着键（mouseHeld，由系统级监听 + 页面上报共同维护），
+       * 就一直保持接管，鼠标跑多远都跟得上。
+       */
+      if (mouseHeld) return;
       ignoreState = true;
       petWin.setIgnoreMouseEvents(true, { forward: true });
     }
@@ -669,6 +740,21 @@ ipcMain.on("login-state", (_e, loggedIn) => {
   if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) createMainWindow();
 });
 
+/**
+ * v3.9.15 诊断接口：把主进程的关键状态暴露给页面（仅用于排查"点不动/拖不动"这类问题）。
+ * 之前排查时我完全看不到主进程内部（hitbox 收到没、mouseHeld 是不是 true、是否处于穿透），
+ * 只能靠猜；有了它，页面一句话就能把真相读出来。
+ */
+ipcMain.handle("pet-debug-state", () => ({
+  ignoreState,          // true = 当前穿透（鼠标事件会穿到桌面）
+  takeoverLocked,       // true = 拖拽钉住中
+  mouseHeld,            // true = 检测到鼠标键按着（系统级监听）
+  hasWatcher: !!mouseButtonWatcher, // 系统级鼠标监听是否在跑
+  hitboxCount: petHitboxes ? petHitboxes.length : 0,
+  hitboxes: petHitboxes,
+  hasLoggedIn,
+}));
+
 ipcMain.handle("get-auto-launch", () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle("set-auto-launch", (_e, on) => {
   app.setLoginItemSettings({ openAtLogin: !!on });
@@ -784,6 +870,7 @@ app.whenReady().then(() => {
     /* 拿不到 session 也不影响主流程 */
   }
 
+  startMouseButtonWatcher(); // v3.9.15 系统级鼠标按键监听（拖拽期间保持接管）
   createPetWindow(); // 桌宠先起来（页面报登录态后再决定显示/弹登录窗）
   createTray();
   initAutoUpdate(); // v3.9.8 自动更新：启动后静默检查新版本
