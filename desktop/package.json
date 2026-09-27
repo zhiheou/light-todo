@@ -1,6 +1,6 @@
 {
   "name": "light-todo-desktop",
-  "version": "3.9.21",
+  "version": "3.9.22",
   "private": true,
   "description": "轻待办桌面版：桌宠常驻桌面",
   "main": "main.js",
@@ -57,7 +57,7 @@
       "category": "public.app-category.productivity",
       "darkModeSupport": true,
       "identity": null,
-      "artifactName": "light-todo-setup-${version}-mac.${ext}",
+      "artifactName": "light-todo-setup-${version}-mac-${arch}.${ext}",
       "extendInfo": {
         "LSUIElement": 1,
         "CFBundleName": "轻待办",
