@@ -24,7 +24,9 @@ cd "C:/Users/L/Documents/Codex/2026-08-18/new-chat/outputs/light-todo-v3" 2>/dev
       git commit -m "sync: 日志/大脑更新" >/dev/null 2>&1
       echo "✅ 已提交本地"
     fi
-    HTTPS_PROXY=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 git push origin master:main >/dev/null 2>&1 && echo "✅ 已推 GitHub main" || echo "⚠️ push 未成功(可能无代理/无改动)"
+    HTTPS_PROXY=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 git push origin master:main >/dev/null 2>&1 \
+      && echo "✅ 已推 GitHub main" \
+      || { echo "⚠️ 直连推送失败（本机 github.com 解析被污染），改用钉地址方式："; bash "C:/Users/L/Documents/Codex/2026-08-18/new-chat/outputs/light-todo-v3/push-github.sh"; }
   fi
 }
 
