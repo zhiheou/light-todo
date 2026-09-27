@@ -7,8 +7,9 @@ compatibility_date = "2025-08-01"
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-# /dl/* 要交给 Worker 处理（从 R2 取安装包），不能落进 SPA 兜底
-run_worker_first = ["/api/*", "/dl/*"]
+# /dl/* 要交给 Worker 处理（从 R2 取安装包），/mirror/* 是 GitHub 下载镜像加速，
+# 两者都不能落进 SPA 兜底 —— 否则任何路径都会返回 index.html（实测就是这个症状）。
+run_worker_first = ["/api/*", "/dl/*", "/mirror/*"]
 
 [[d1_databases]]
 binding = "DB"

@@ -236,7 +236,7 @@ export default {
     // 在模块作用域使用绑定（D1 / secrets）。
     globalThis.DB = workerEnv.DB;
     globalThis.DEEPSEEK_KEY = workerEnv.DEEPSEEK_API_KEY || "";
-  globalThis.FALLBACK_KEY = workerEnv.FALLBACK_KEY || "";
+    globalThis.FALLBACK_KEY = workerEnv.FALLBACK_KEY || "";
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -247,6 +247,13 @@ export default {
     // R2 专门存大文件、免出站流量费，正合适。
     if (path.startsWith("/dl/")) {
       return handleDownload(request, workerEnv, path);
+    }
+
+    // v3.9.21 安装包镜像加速：/mirror/* 反向代理 GitHub Releases。
+    // 场景：GitHub 在国内直连只有 ~33KB/s（实测），91MB 的 Mac 包要下 45 分钟。
+    // 让 Worker 去取、经 Cloudflare 边缘发给用户，速度是另一个量级。
+    if (path.startsWith("/mirror/")) {
+      return handleMirror(request, path);
     }
 
     // 非 /api/* 一律交给 assets 绑定（SPA）。index.html 由 assets 提供。
@@ -310,6 +317,94 @@ async function handleDownload(request, workerEnv, path) {
   headers.set("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(key)}`);
 
   return new Response(obj.body, { headers });
+}
+
+/**
+ * 安装包镜像加速（/mirror/*）：反向代理 GitHub Releases。
+ *
+ * 为什么需要：GitHub 在国内直连实测只有 ~33KB/s，91MB 的 Mac 包要下 45 分钟；
+ * 而 Cloudflare 边缘到国内用户是正常速度。让 Worker 去取、由边缘转发。
+ *
+ * 安全设计（重要，别简化）：
+ *  1. **只允许我们自己的仓库**：路径里的 owner/repo 必须命中白名单，
+ *     否则这个域名就成了"任何人可用的免费代理"（被刷流量、被当跳板）。
+ *  2. **只允许 releases/download/**：不给它代理仓库其它内容的能力。
+ *  3. 只转发 GET/HEAD，不透传请求体。
+ *  4. 透传 range（断点续传）—— 大文件下载中断后能接着下。
+ */
+const MIRROR_ALLOWED_REPOS = ["zhiheou/light-todo"];
+
+/**
+ * 纯文本回复。必须显式带 `charset=utf-8`：Cloudflare 默认按 latin-1 处理，
+ * 中文会变成乱码（实测 "不允许的仓库" → "²»ÔÊÐíµÄ²Ö¿â"）。
+ */
+function mirrorText(msg, status) {
+  return new Response(msg, {
+    status,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
+
+async function handleMirror(request, path) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return mirrorText("只支持 GET", 405);
+  }
+
+  // /mirror/<owner>/<repo>/releases/download/<tag>/<file>
+  const rest = path.slice("/mirror/".length);
+  const parts = rest.split("/");
+  if (parts.length < 5 || parts[0] === ".." || parts[1] === "..") {
+    return mirrorText("路径无效", 400);
+  }
+  const repo = `${parts[0]}/${parts[1]}`;
+  if (!MIRROR_ALLOWED_REPOS.includes(repo)) {
+    return mirrorText("不允许的仓库", 403);
+  }
+  if (parts[2] !== "releases" || parts[3] !== "download") {
+    return mirrorText("只允许 releases/download 路径", 403);
+  }
+  // 剩下的是 <tag>/<file...>，逐段校验（防止 ../ 穿越到别处）
+  const tail = parts.slice(4);
+  if (tail.some((seg) => !seg || seg === "." || seg === "..")) {
+    return mirrorText("路径无效", 400);
+  }
+
+  const target = `https://github.com/${repo}/releases/download/${tail.join("/")}`;
+
+  // 只透传必要的请求头：range（断点续传）与条件请求
+  const fwd = new Headers();
+  for (const h of ["range", "if-none-match", "if-modified-since"]) {
+    const v = request.headers.get(h);
+    if (v) fwd.set(h, v);
+  }
+
+  let upstream;
+  try {
+    upstream = await fetch(target, {
+      method: request.method,
+      headers: fwd,
+      redirect: "follow", // GitHub 会 302 到它自己的存储域名
+    });
+  } catch {
+    return mirrorText("上游连接失败，请稍后再试", 502);
+  }
+
+  if (!upstream.ok && upstream.status !== 206) {
+    return mirrorText(`上游返回 ${upstream.status}`, upstream.status);
+  }
+
+  const headers = new Headers();
+  // 透传体积与范围相关头，否则下载器无法显示进度/续传
+  for (const h of ["content-length", "content-range", "accept-ranges", "etag", "last-modified"]) {
+    const v = upstream.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  headers.set("content-type", "application/octet-stream");
+  headers.set("content-disposition", "attachment");
+  // 安装包按版本命名、内容不会变 → 可以放心长缓存，回源次数降到最低
+  headers.set("cache-control", "public, max-age=86400, immutable");
+
+  return new Response(upstream.body, { status: upstream.status, headers });
 }
 
 async function routeApi(request, path, url) {

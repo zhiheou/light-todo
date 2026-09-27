@@ -52,6 +52,7 @@ jobs:
           path: |
             desktop/release/*.exe
             desktop/release/*.blockmap
+            desktop/release/*.yml
           if-no-files-found: error
 
   # ---------- macOS 安装包（Intel + Apple 芯片） ----------
