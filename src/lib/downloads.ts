@@ -34,9 +34,10 @@ export const DOWNLOADS = {
   macApple: "https://todo.aebuiyke.xyz/dl/light-todo-setup-3.9.22-mac-arm64.zip",
   /** 版本号（显示用，与桌面版 package.json 的 version 保持一致） */
   version: "3.9.22",
-  /** 安装包大小（显示用，留空则不显示） */
+  /** 安装包大小 —— 按**芯片**分开写：两个 Mac 包体积不一样，写一个会显示错。 */
   windowsSize: "78 MB",
-  macSize: "91 MB",
+  macIntelSize: "95 MB",
+  macAppleSize: "91 MB",
 };
 
 /**

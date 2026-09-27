@@ -51,7 +51,12 @@ function DownloadColumn({ os, current, ua }: ColumnProps) {
    */
   const macPick = pickMacDownload(ua);
   const url = isWin ? DOWNLOADS.windows : macPick.url;
-  const size = isWin ? DOWNLOADS.windowsSize : DOWNLOADS.macSize;
+  // 两个 Mac 包的体积不一样（95MB / 91MB），大小要跟着挑中的芯片走
+  const size = isWin
+    ? DOWNLOADS.windowsSize
+    : macPick.arch === "apple"
+      ? DOWNLOADS.macAppleSize
+      : DOWNLOADS.macIntelSize;
   const ready = isWin ? DOWNLOAD_READY.windows : DOWNLOAD_READY.mac;
   const highlighted = current === os;
   const Icon = isWin ? MonitorDown : Apple;
