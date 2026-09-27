@@ -85,7 +85,6 @@ jobs:
         with:
           name: mac-installer
           path: |
-            desktop/release/*.dmg
             desktop/release/*.zip
           if-no-files-found: error
 
