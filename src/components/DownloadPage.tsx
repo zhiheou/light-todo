@@ -11,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { BloubAvatar } from "./BloubAvatar";
-import { DOWNLOADS, DOWNLOAD_READY } from "../lib/downloads";
+import { DOWNLOADS, DOWNLOAD_READY, pickMacDownload } from "../lib/downloads";
 
 /**
  * 下载页（/download）
@@ -23,8 +23,7 @@ import { DOWNLOADS, DOWNLOAD_READY } from "../lib/downloads";
  */
 type OS = "windows" | "mac" | "other";
 
-function detectOS(): OS {
-  const ua = navigator.userAgent;
+function detectOS(ua: string): OS {
   if (/Windows NT/i.test(ua)) return "windows";
   if (/Macintosh|Mac OS X/i.test(ua)) return "mac";
   return "other";
@@ -40,11 +39,18 @@ const OS_LABEL: Record<OS, string> = {
 interface ColumnProps {
   os: "windows" | "mac";
   current: OS;
+  /** 当前浏览器 UA —— Mac 版靠它挑对芯片（见 pickMacDownload） */
+  ua: string;
 }
 
-function DownloadColumn({ os, current }: ColumnProps) {
+function DownloadColumn({ os, current, ua }: ColumnProps) {
   const isWin = os === "windows";
-  const url = isWin ? DOWNLOADS.windows : DOWNLOADS.mac;
+  /**
+   * v3.9.22：Mac 有两种芯片，装错了系统会直接拒绝
+   * （报「这台 Mac 不支持此应用程序」）。这里按芯片自动挑，用户不用懂这些。
+   */
+  const macPick = pickMacDownload(ua);
+  const url = isWin ? DOWNLOADS.windows : macPick.url;
   const size = isWin ? DOWNLOADS.windowsSize : DOWNLOADS.macSize;
   const ready = isWin ? DOWNLOAD_READY.windows : DOWNLOAD_READY.mac;
   const highlighted = current === os;
@@ -64,7 +70,13 @@ function DownloadColumn({ os, current }: ColumnProps) {
         </span>
         <div>
           <h3>{isWin ? "Windows 版" : "macOS 版"}</h3>
-          <p>{isWin ? "Windows 10 / 11" : "Intel 与 Apple 芯片通用"}</p>
+          <p>
+            {isWin
+              ? "Windows 10 / 11"
+              : macPick.arch === "apple"
+                ? "已为你选好 Apple 芯片版（M1/M2/M3/M4）"
+                : "已为你选好 Intel 芯片版"}
+          </p>
         </div>
       </div>
 
@@ -114,8 +126,11 @@ function DownloadColumn({ os, current }: ColumnProps) {
 
 export default function DownloadPage() {
   const [os, setOs] = useState<OS>("other");
+  // UA 存成 state：Mac 版要靠它挑芯片，且必须等挂载后才能读到 navigator
+  const [ua, setUa] = useState("");
   useEffect(() => {
-    setOs(detectOS());
+    setUa(navigator.userAgent);
+    setOs(detectOS(navigator.userAgent));
   }, []);
 
   const openApp = () => {
@@ -159,8 +174,8 @@ export default function DownloadPage() {
         )}
 
         <div className="dl-grid">
-          <DownloadColumn os="windows" current={os} />
-          <DownloadColumn os="mac" current={os} />
+          <DownloadColumn os="windows" current={os} ua={ua} />
+          <DownloadColumn os="mac" current={os} ua={ua} />
         </div>
 
         {/* Mac 首次打开会被系统拦一下 —— 提前讲清楚，别让用户以为装坏了 */}
