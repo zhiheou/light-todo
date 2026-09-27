@@ -160,6 +160,33 @@ describe("Mac 兼容：打包相关", () => {
     ).toBeNull();
   });
 
+  it("【Mac 打包】dmg 卷名必须是纯 ASCII（中文会让 hdiutil 卸载失败）", () => {
+    /**
+     * v3.9.21 实测踩到的坑（云端 Mac 构建直接失败）：
+     *
+     *   ⨯ unable to execute hdiutil args=["detach","-quiet","/Volumes/轻待办 3.9.21"]
+     *     ... retrying 5 more times（连试 6 次全败）→ 整个 mac 构建挂掉
+     *
+     * 原因：dmg 的 `title` 会成为挂载后的**卷名**。含中文时，
+     * electron-builder 打包完要 `hdiutil detach` 卸载这个卷，
+     * 而带非 ASCII 的卷名在 macOS 上反复卸载失败（重试也没用）。
+     *
+     * 注意区分：这只是**安装镜像内部的卷标**，跟用户看到的应用名无关 ——
+     * 用户装完在「应用程序」里看到的仍是「轻待办」（由 CFBundleName 决定）。
+     * 所以卷名用英文没有任何损失，却能保证构建成功。
+     */
+    const pkg = JSON.parse(
+      readFileSync(new URL("../desktop/package.json", import.meta.url), "utf8"),
+    ) as { build: { dmg: { title: string } } };
+    const title = pkg.build.dmg.title;
+    // eslint-disable-next-line no-control-regex
+    expect(
+      /^[\x20-\x7e]*$/.test(title),
+      `dmg.title 是「${title}」，必须是纯 ASCII：` +
+        "含中文会让云端 Mac 构建在 hdiutil detach 这一步反复失败、整个打包挂掉。",
+    ).toBe(true);
+  });
+
   it("版本号必须 ≥ 3.9.21（Mac 修复版），且与自动更新源一致", () => {
     /**
      * v3.9.20 的血泪：desktop/package.json 的 version 从 3.9.4 一直没动，

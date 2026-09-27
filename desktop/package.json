@@ -66,7 +66,7 @@
       }
     },
     "dmg": {
-      "title": "轻待办 ${version}",
+      "title": "LightTodo ${version}",
       "contents": [
         {
           "x": 140,
