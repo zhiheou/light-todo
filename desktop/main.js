@@ -27,7 +27,23 @@ const path = require("path");
  *  - 命中判定才需要 scaleFactor：getCursorScreenPoint 是物理像素，getPosition 是 CSS 像素
  */
 
-app.disableHardwareAcceleration(); // 防透明窗口黑底
+/**
+ * v3.9.21 🔴 关硬件加速必须**只限 Windows**（这条是 Mac 上最致命的一个坑）。
+ *
+ * Electron 官方文档在 `setIgnoreMouseEvents` 上有一句硬性说明：
+ *   "Note: On macOS, this API is a no-op when hardware acceleration is disabled."
+ *   （Mac 上关掉硬件加速时，这个 API 直接不生效。）
+ *
+ * 而桌宠窗是**铺满整屏的透明置顶窗**，穿透全靠它就。
+ * 一旦在 Mac 上关了硬件加速 → 穿透失效 → 一个看不见的全屏窗口罩住整块屏幕
+ * → **整台电脑点不动**（比 Windows 上"桌面卡死"那次更彻底）。
+ *
+ * 而这个调用当初是为了修 **Windows** 上某些显卡驱动把透明窗渲染成黑底的问题，
+ * 跟 Mac 无关。所以加平台判断：只在 Windows 上关。
+ */
+if (process.platform !== "darwin") {
+  app.disableHardwareAcceleration(); // 防透明窗口黑底（Windows 专属，Mac 关了会出大事）
+}
 app.commandLine.appendSwitch("enable-transparent-visuals");
 
 /**
@@ -201,7 +217,29 @@ function createPetWindow() {
   });
 
   petWin.setAlwaysOnTop(true, "screen-saver");
-  petWin.setVisibleOnAllWorkspaces(true);
+  /**
+   * v3.9.21 🔴 Mac 必须显式传 `visibleOnFullScreen`，否则用户一进全屏宠物就"消失"。
+   *
+   * Mac 有"空间（Space）"的概念：桌面是一个空间，**每个全屏 App 是另一个独立空间**。
+   * 窗口默认只存在于自己那个空间里，切走就看不见了。
+   * `setVisibleOnAllWorkspaces(true)` 两个平台语义不同：
+   *   - Windows：所有虚拟桌面都显示（无参数即可）
+   *   - Mac：默认**不覆盖全屏空间**，必须传 `{ visibleOnFullScreen: true }`
+   *     才会跟着用户进到全屏 App 上面。
+   *
+   * 不传的后果：用户全屏看视频 / 做演示 / 全屏写代码时，桌宠凭空不见
+   * （其实还在，只是在"桌面"那个空间里），要退出全屏才看得到。
+   *
+   * `skipTransformProcessType` 用于避免 Mac 上调用本 API 时 Dock 图标异常闪烁。
+   */
+  if (process.platform === "darwin") {
+    petWin.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
+  } else {
+    petWin.setVisibleOnAllWorkspaces(true);
+  }
   // 穿透由 startPetHoverWatch() 轮询控制（不依赖页面 DOM 事件：
   // Electron 的 forward:true 在浏览器内部链上会截断，页面收不到 mousemove → 永远解不开穿透）
   petWin.setIgnoreMouseEvents(true, { forward: true });
@@ -350,6 +388,28 @@ function createMainWindow() {
 }
 
 // ---------- 托盘（关窗口后还能找回） ----------
+/**
+ * v3.9.21 🔴 Mac 专属：关掉 Dock 图标 + 修正菜单栏里的应用名。
+ *
+ * 必须先 app.setName() 再 app.whenReady() 生效 —— macOS 用 Info.plist 的
+ * CFBundleName 给应用命名，而开发版/未签名的构建里它是默认的 "Electron"，
+ * 于是用户会在菜单栏看到「Electron」，像是装了个半成品。
+ *
+ * app.dock.hide() 是标准做法：常驻型桌宠不应该在 Dock 里占一格
+ * （用户已经有托盘/菜单栏图标可以找回主界面）。
+ * 必须在 whenReady 之后调用，Dock 此时才存在。
+ */
+if (process.platform === "darwin") {
+  app.setName("轻待办");
+  app.on("ready", () => {
+    try {
+      app.dock?.hide();
+    } catch {
+      /* 拿不到 dock（非 Mac 或权限）不影响主流程 */
+    }
+  });
+}
+
 function createTray() {
   // 用一个 16x16 的空图占位（没有图标文件时也能跑），有 icon.ico 则用真的
   let img;

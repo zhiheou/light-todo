@@ -152,6 +152,13 @@ export function startMouseHeldWatch(): void {
 
   let releaseTimer: number | null = null;
   let lastSentHeld: boolean | null = null;
+  /**
+   * v3.9.21 指针事件最近一次汇报的状态（**是否认为鼠标键还按着**）。
+   * 用途：鼠标事件兜底里判断"敢不敢用 buttons=0 去解除接管"——
+   * 拖拽中如果我们认为还按着，就不能被一个过时的 buttons=0 误伤（会让拖拽当场断掉）。
+   * 不能复用 lastSentHeld：那个表示"已上报给主进程的值"，会被去重逻辑滞后。
+   */
+  let dragLikeHeld = false;
 
   const sync = (held: boolean) => {
     if (held === lastSentHeld) return;
@@ -177,6 +184,7 @@ export function startMouseHeldWatch(): void {
    */
   const onPointer = (e: PointerEvent) => {
     const held = (e.buttons ?? 0) !== 0;
+    dragLikeHeld = held;
     if (held) {
       if (releaseTimer !== null) {
         window.clearTimeout(releaseTimer);
@@ -197,12 +205,51 @@ export function startMouseHeldWatch(): void {
   window.addEventListener("pointermove", onPointer, true); // 关键：多键时只有 move 事件能反映最新 buttons
   window.addEventListener("pointerup", onPointer, true);
   window.addEventListener("pointercancel", onPointer, true);
-  // 兜底：窗口失焦 / 鼠标离开窗口时强制清空（避免按键状态卡住导致永远接管）
+
+  /**
+   * v3.9.21 🔴 独立于指针事件的兜底（Mac 上尤其关键）。
+   *
+   * 为什么要第二重监听：
+   * 上面那几个 pointer 事件在**正常**情况下够用，但它们有一个共同的前提 ——
+   * **事件能送到页面**。而桌宠窗是铺满整屏的透明窗，穿透由主进程轮询控制；
+   * 拖拽中途一旦 pointer capture 丢失、或窗口被切回穿透，
+   * 后续的 pointermove / pointerup **页面一个都收不到** → 页面停在旧状态上再也不更新。
+   *
+   * Windows 上这个洞被 `startMouseButtonWatcher()`（常驻 PowerShell 读系统按键）兜住了；
+   * **Mac 上没有那个** → 只能靠页面自己，于是这个洞在 Mac 上必然踩中：
+   * 用户表现就是「拖到一半拖不动了」。
+   *
+   * 这里挂一重**走不同派发链**的鼠标事件监听（`mousemove` / `mouseup`）：
+   * 意义不在于"比 pointer 更准"，而在于**只要还有一条通道活着，状态就能恢复**。
+   * 两者都读同一个 `e.buttons` 位掩码，互相纠偏。
+   *
+   * ⚠️ 只在"我们没有正在按着"的前提下才敢用鼠标事件去**解除**接管；
+   * 报 true 时则无条件采纳（那一定是在救"按着却以为松了"的状态）。
+   * 反之会误伤：拖拽中窗口刚被接管、页面开始收到 mousemove 时，
+   * 若拿一个过时的 buttons=0 去解除，拖拽会当场断掉。
+   */
+  const onMouseFallback = (e: MouseEvent) => {
+    if ((e.buttons ?? 0) !== 0) {
+      if (releaseTimer !== null) {
+        window.clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
+      dragLikeHeld = false;
+      sync(true);
+    } else if (!dragLikeHeld) {
+      onPointer(e as unknown as PointerEvent);
+    }
+  };
+  window.addEventListener("mousemove", onMouseFallback, true);
+  window.addEventListener("mouseup", onMouseFallback, true);
+
+  // 兜底：窗口失焦时强制清空（避免按键状态卡住导致永远接管）
   window.addEventListener("blur", () => {
     if (releaseTimer !== null) {
       window.clearTimeout(releaseTimer);
       releaseTimer = null;
     }
+    dragLikeHeld = false;
     sync(false);
   });
 }

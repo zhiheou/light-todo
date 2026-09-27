@@ -1,6 +1,6 @@
 {
   "name": "light-todo-desktop",
-  "version": "3.9.20",
+  "version": "3.9.21",
   "private": true,
   "description": "轻待办桌面版：桌宠常驻桌面",
   "main": "main.js",
@@ -57,8 +57,11 @@
       "category": "public.app-category.productivity",
       "darkModeSupport": true,
       "identity": null,
+      "artifactName": "light-todo-setup-${version}.${ext}",
       "extendInfo": {
         "LSUIElement": 1,
+        "CFBundleName": "轻待办",
+        "CFBundleDisplayName": "轻待办",
         "NSAppleEventsUsageDescription": "轻待办需要使用辅助功能来保持桌宠置顶显示。"
       }
     },
