@@ -46,7 +46,7 @@
     "mac": {
       "target": [
         {
-          "target": "dmg",
+          "target": "zip",
           "arch": [
             "x64",
             "arm64"
@@ -57,7 +57,7 @@
       "category": "public.app-category.productivity",
       "darkModeSupport": true,
       "identity": null,
-      "artifactName": "light-todo-setup-${version}.${ext}",
+      "artifactName": "light-todo-setup-${version}-mac.${ext}",
       "extendInfo": {
         "LSUIElement": 1,
         "CFBundleName": "轻待办",

@@ -152,7 +152,7 @@ describe("Mac 兼容：打包相关", () => {
     const arches = targets.flatMap((t) => t.arch);
     expect(arches, "Mac 包必须同时出 x64（Intel）和 arm64（M 系列）").toContain("x64");
     expect(arches).toContain("arm64");
-    expect(targets.map((t) => t.target)).toContain("dmg");
+    expect(targets.map((t) => t.target)).toContain("zip");
     // 没买苹果签名证书 → identity 必须为 null，否则云端构建会因找不到证书而失败
     expect(
       (pkg.build.mac as unknown as { identity: unknown }).identity,
