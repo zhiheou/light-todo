@@ -1,4 +1,5 @@
 import type { Memo, Mode } from "../types";
+import { bumpLocalRevision } from "./syncLock";
 
 const WORK_KEY = "lighttodo:work-memos:v1";
 const PERSONAL_KEY = "lighttodo:personal-memos:v1";
@@ -78,8 +79,41 @@ export function loadWorkMemos(): Memo[] {
   }
 }
 
+/** 本窗口最近一次备忘写盘的内容 —— 用于"没变就别写"，防两个窗口互相写回旧值 */
+const lastWritten = new Map<Mode, string>();
+
 export function saveWorkMemos(memos: Memo[]): void {
-  localStorage.setItem(WORK_KEY, JSON.stringify(memos));
+  saveMemosByMode("work", memos);
+}
+
+/**
+ * v3.9.22：写盘即"登记"，服务器旧数据不许再盖回来（见 lib/syncLock.ts）。
+ * 同 saveTasks：**只有真改动才登记** —— 挂载时原样写回不算改动，
+ * 否则启动即把水位顶到"现在"，服务器数据再也同步不进来。
+ */
+function saveMemosByMode(mode: Mode, memos: Memo[]): void {
+  const key = mode === "work" ? WORK_KEY : PERSONAL_KEY;
+  const json = JSON.stringify(memos);
+  const prev = lastWritten.get(mode) ?? localStorage.getItem(key);
+  lastWritten.set(mode, json);
+  if (prev === json) return;
+  bumpLocalRevision();
+  localStorage.setItem(key, json);
+}
+
+/**
+ * 从 localStorage 读回备忘（跨窗口同步用）。
+ * 只在**另一个窗口**改动过时才会返回新内容，同窗口自己写的返回 null（防止自激）。
+ */
+export function loadMemosIfChanged(mode: Mode): Memo[] | null {
+  const raw = localStorage.getItem(mode === "work" ? WORK_KEY : PERSONAL_KEY);
+  if (raw === null || raw === lastWritten.get(mode)) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? normalizeMemos(parsed) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function legacyPersonalMemos(): Memo[] | null {

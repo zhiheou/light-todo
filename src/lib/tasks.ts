@@ -1,5 +1,6 @@
 import type { Mode, RepeatFreq, RepeatRule, Task, ViewFilter, SortMode } from "../types";
 import { nextOccurrence, toDateString } from "./repeat";
+import { bumpLocalRevision } from "./syncLock";
 
 const WORK_KEY = "lighttodo:work:v1";
 const PERSONAL_KEY = "lighttodo:personal:v1";
@@ -104,8 +105,11 @@ export function normalizeTask(raw: unknown): Task {
     remindAt: typeof t.remindAt === "string" ? t.remindAt : "",
     completed: Boolean(t.completed),
     completedAt: typeof t.completedAt === "number" ? t.completedAt : undefined,
-    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+    // v3.9.22：updatedAt 必须原样保留 —— 它是"这条最后被改于何时"的水位线，
+    // 用作拉取覆盖判据（见 lib/syncLock.ts）。若在这里刷成 Date.now()，
+    // 每次读取都会把水位抬高，旧数据反而会盖掉新数据。
     updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now(),
+    createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
   };
   const r = t.repeat;
   if (r && typeof r === "object" && REPEAT_FREQS.includes(r.freq)) {
@@ -190,8 +194,36 @@ export function toggleCompleted(
   return { tasks: next, spawned };
 }
 
+/** 本窗口最近一次任务写盘的内容 —— 用于"没变就别写"，防两个窗口互相写回旧值 */
+const lastWritten: Partial<Record<Mode, string>> = {};
+
 export function saveTasks(mode: Mode, tasks: Task[]): void {
-  localStorage.setItem(keyFor(mode), JSON.stringify(tasks));
+  const key = keyFor(mode);
+  const json = JSON.stringify(tasks);
+  // 首次写盘时，拿**磁盘上的现状**当基准：
+  // 挂载时"把刚读出来的东西原样写回去"不是改动，不能抬高水位。
+  // 否则主窗口一启动水位就是"现在"，服务器数据再也同步不进来（多端同步会静默失效）。
+  const prev = lastWritten[mode] !== undefined ? lastWritten[mode] : localStorage.getItem(key);
+  lastWritten[mode] = json;
+  // 内容没变就到此为止 —— 否则「另一个窗口改了 → 本窗口重读 → 又写回去」会无限对写
+  if (prev === json) return;
+  bumpLocalRevision(); // v3.9.22：真改动才登记，服务器旧数据不许再盖回来
+  localStorage.setItem(key, json);
+}
+
+/**
+ * 从 localStorage 读回任务（跨窗口同步用）。
+ * 只在**另一个窗口**改动过时才会返回新内容，同窗口自己写的返回 null（防止自激）。
+ */
+export function loadTasksIfChanged(mode: Mode): Task[] | null {
+  const raw = localStorage.getItem(keyFor(mode));
+  if (raw === null || raw === lastWritten[mode]) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? normalizeTasks(parsed) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function isOverdue(task: Task, now: Date): boolean {
