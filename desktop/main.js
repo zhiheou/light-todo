@@ -43,12 +43,18 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    // 用户又双击了图标 → 把主窗口叫到前面来（而不是再开一个）
+    /**
+     * 用户又双击了图标 → 叫出主窗口。
+     * v3.9.20 🔴 修：原来无条件 `show()`，会把**用户主动隐藏**的主窗口强行弹出来
+     * （用户点了"关闭主窗口（桌宠继续在）"，结果双击图标又冒出来，与"关了就是收起"的心智相反）。
+     * 现在：窗口不存在/被销毁 → 新建；最小化了 → 还原；**已隐藏 → 也还原**
+     * （双击图标本身就是一个明确的"我要看界面"的意图，这里认为用户是想打开）。
+     */
     if (mainWin && !mainWin.isDestroyed()) {
       if (mainWin.isMinimized()) mainWin.restore();
       mainWin.show();
       mainWin.focus();
-    } else if (typeof createMainWindow === "function") {
+    } else {
       createMainWindow();
     }
   });
@@ -220,6 +226,42 @@ function createPetWindow() {
     if (hoverTimer) { clearInterval(hoverTimer); hoverTimer = null; }
   });
 
+  /**
+   * v3.9.20 🔴 页面加载失败 / 渲染进程崩溃的兜底。
+   *
+   * 真 bug（用户报过"整个桌面彻底卡死，任何点击都没有任何反应"）：
+   * 桌宠窗是**铺满整屏的透明窗**，默认 `setIgnoreMouseEvents(true)`（穿透）。
+   * 只有页面成功跑起来、上报了 hitbox，主进程才可能接管。
+   * 一旦加载失败（断网 / Cloudflare 502 / 证书问题）或渲染进程崩溃：
+   *   → 页面永远不上报 → 一直保持"穿透"？
+   *   不。问题在于**主窗口**：那个看不见的全屏透明窗仍在最顶层，
+   *   用户点什么都被它截走 → 桌面像是"死了"。
+   * 现在：加载失败/崩溃 → **立刻把桌宠窗藏起来**，并叫出主窗口让用户有界面可用。
+   */
+  const recoverFromPetFailure = (why) => {
+    try {
+      console.error("[pet] 异常，已隐藏桌宠窗并打开主窗口：", why);
+      if (petWin && !petWin.isDestroyed()) petWin.hide();
+      if (!mainWin || mainWin.isDestroyed() || !mainWin.isVisible()) createMainWindow();
+      refreshTrayMenu();
+    } catch {
+      /* 忽略 */
+    }
+  };
+
+  petWin.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
+    // -3 是用户主动中断（如刷新），不算失败
+    if (!isMainFrame || code === -3) return;
+    recoverFromPetFailure(`did-fail-load ${code} ${desc} ${url}`);
+  });
+
+  petWin.webContents.on("render-process-gone", (_e, details) => {
+    recoverFromPetFailure(`render-process-gone ${details?.reason ?? ""}`);
+  });
+
+  // 渲染进程长时间无响应（卡死）→ 同样兜底（用户至少能用主窗口）
+  petWin.on("unresponsive", () => recoverFromPetFailure("unresponsive"));
+
   startPetHoverWatch();
 }
 
@@ -365,8 +407,17 @@ function refreshTrayMenu() {
         label: petVisible ? "隐藏桌宠" : "显示桌宠",
         click: () => {
           if (!petWin || petWin.isDestroyed()) return;
-          if (petWin.isVisible()) petWin.hide();
-          else petWin.show();
+          if (petWin.isVisible()) {
+            petWin.hide();
+          } else if (!hasLoggedIn) {
+            /**
+             * v3.9.20 🔴 未登录时"显示桌宠"是无意义的（页面里什么都没有，是个空白透明窗），
+             * 用户会以为"点了没反应"。这里改成直接把登录窗口叫出来。
+             */
+            createMainWindow();
+          } else {
+            petWin.show();
+          }
           refreshTrayMenu(); // 状态变了，菜单文案跟着更新
         },
       },
@@ -377,24 +428,48 @@ function refreshTrayMenu() {
   );
 }
 
-/** 开始下载更新（托盘与页面共用） */
+/**
+ * 开始下载更新（托盘与页面共用）。
+ *
+ * v3.9.20 🔴 必须先 checkForUpdates 再下载。
+ * 真 bug：`autoDownload=false` 时若没先检查过，`downloadUpdate()` 会抛
+ * "Please check update first"（electron-updater 内部要求先有 updateInfo），
+ * 而这里 catch 吞掉了异常 → 用户点"有新版本，点击更新"**永远没反应**。
+ */
 async function beginUpdateDownload() {
   try {
     const { autoUpdater } = require("electron-updater");
+    if (updateState.status === "available") {
+      // 已知有新版本但还没拿到 updateInfo → 先检查
+      await autoUpdater.checkForUpdates();
+    }
     await autoUpdater.downloadUpdate();
-  } catch {
-    /* 失败已由 error 事件反映到 updateState */
+  } catch (err) {
+    updateState = { ...updateState, status: "error", error: String(err?.message || err) };
   }
 }
 
-/** 立即重启并安装更新 */
+/**
+ * 立即重启并安装更新。
+ *
+ * v3.9.20 🔴 修状态卡死：只有**确认下载完成后**才置 `quitting=true`。
+ * 旧写法无条件置 true → 没下载就点"重启生效"时 `quitAndInstall` 内部报
+ * "No update filepath provided" 并返回 false（不退出、不重启），
+ * 而 quitting 已经是 true → 主窗口的 close 拦截失效（再点 ✕ 就真销毁了），
+ * 托盘行为也跟着乱。
+ */
 function installUpdateNow() {
   try {
     const { autoUpdater } = require("electron-updater");
+    if (updateState.status !== "ready") {
+      void beginUpdateDownload(); // 还没下载完 → 先去下载
+      return;
+    }
     quitting = true; // 放行窗口 close 拦截，否则安装程序替换不了文件
-    autoUpdater.quitAndInstall(false, true);
+    const ok = autoUpdater.quitAndInstall(false, true);
+    if (!ok) quitting = false; // 没装成 → 恢复状态，别让退出通道卡死
   } catch {
-    /* 忽略 */
+    quitting = false;
   }
 }
 

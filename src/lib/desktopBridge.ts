@@ -223,10 +223,24 @@ export function startMouseHeldWatch(): void {
  */
 const AUTO_LAYER_SELECTORS = [
   ".pet-config", // 动作与设置面板（形态馆/皮肤/行为）
+  /**
+   * v3.9.20 🔴 补 `.pet-config-overlay`（设置面板的全屏蒙层）。
+   *
+   * 这是**同类事故第 5 次**：蒙层铺满全屏、点击它应该关闭设置面板，
+   * 但它没被登记 → 点击直接穿到桌面（蒙层不关、面板挂着、还选中了桌面图标）。
+   * 用户视角就是"点了没反应 + 点到底下的东西"。
+   */
+  ".pet-config-overlay",
   ".pet-menu", // 桌宠右键菜单
   ".pet-summon", // 召回按钮
   ".mascot-panel", // 聊天面板
+  ".mascot-bubble", // 聊天/提醒气泡
   ".pet-microtip", // 灵动小字气泡
+  ".pet-saved-hint", // "已保存"提示（压在宠物角上）
+  ".pet-config-tip", // 设置面板里的说明气泡
+  ".pet-skin-panel", // 皮肤面板
+  ".ability-panel", // 助手能力设置面板
+  ".ability-learn-hint", // 学习记录提示
 ];
 
 export function startAutoHitAreaScan(): void {

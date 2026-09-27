@@ -185,6 +185,32 @@ export default function PetShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skin.size]);
 
+  /**
+   * v3.9.20 🔴 屏幕变化（插拔显示器 / 改分辨率 / 换主屏）时，把宠物夹回可见范围。
+   *
+   * 真 bug：`dock` 存的是**屏幕绝对坐标**（如 2408,1240）。用户换了显示器/改分辨率后，
+   * 新屏幕的原点和尺寸都变了，而 dock 不变 → 宠物落在新屏幕范围外
+   * （跑到另一台显示器上，或干脆看不见），只能手动点"回右下角"拉回来。
+   * 现在：收到 pet-display（主进程在屏幕变化时会广播）就检查一次，超出就夹回边界内。
+   */
+  useEffect(() => {
+    const onDisplayChange = () => {
+      if (!dock || position === "bottom") return;
+      const b = petBounds();
+      const maxX = Math.max(0, b.w - px);
+      const maxY = Math.max(0, b.h - px);
+      const cx = Math.max(0, Math.min(maxX, dock.x));
+      const cy = Math.max(0, Math.min(maxY, dock.y));
+      if (cx !== dock.x || cy !== dock.y) {
+        setDock({ x: cx, y: cy });
+        savePetDock({ x: cx, y: cy });
+      }
+    };
+    window.addEventListener("pet-display", onDisplayChange);
+    return () => window.removeEventListener("pet-display", onDisplayChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dock, px, position]);
+
   // 桌面版：把算好的尺寸报给主进程，让宠物窗口跟着变大变小（否则 140px 窗口装不下 104px 宠物）
   useEffect(() => {
     const dm = (window as unknown as { petDisplay?: DisplayMetrics }).petDisplay;

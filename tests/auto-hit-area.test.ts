@@ -75,3 +75,30 @@ describe("浮层自动登记：所有能点的面板都必须被覆盖", () => {
     expect(p.rects).toContainEqual({ x: 2000, y: 800, w: 300, h: 400 });
   });
 });
+
+describe("v3.9.20 补齐：铺满全屏的蒙层也必须登记", () => {
+  it("【回归·第5次同类事故】`.pet-config-overlay` 必须在自动扫描清单里", async () => {
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync("src/lib/desktopBridge.ts", "utf8"),
+    );
+    // 设置面板的全屏蒙层：点击它应该关闭面板。
+    // 不登记 → 点击穿到桌面（面板不关、还选中了桌面图标）——这是同类 bug 第 5 次。
+    expect(src).toContain('".pet-config-overlay"');
+  });
+
+  it("其余实测会出现在桌宠窗口里的浮层也都要覆盖", async () => {
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync("src/lib/desktopBridge.ts", "utf8"),
+    );
+    for (const sel of [
+      ".mascot-bubble",
+      ".pet-saved-hint",
+      ".pet-config-tip",
+      ".pet-skin-panel",
+      ".ability-panel",
+      ".ability-learn-hint",
+    ]) {
+      expect(src, `缺少 ${sel}`).toContain(`"${sel}"`);
+    }
+  });
+});

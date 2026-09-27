@@ -126,12 +126,44 @@ export function startDiagnose(): void {
     lines.push("=== 报告结束（把以上全部内容发给我）===");
 
     const text = lines.join("\n");
+    let copied = false;
     try {
       await navigator.clipboard.writeText(text);
-      alert("诊断完成！\n\n结果已复制到剪贴板。\n请直接粘贴给我（Ctrl+V）。\n\n如果粘贴不出内容，请截图这一屏。");
+      copied = true;
     } catch {
-      // 剪贴板失败 → 弹出来让用户手动复制
-      window.prompt("诊断完成！请全选下面的内容复制（Ctrl+C），发给我：", text);
+      copied = false;
     }
+
+    /**
+     * v3.9.20 🔴 兜底显示改成**页面内的浮层**，不用 window.prompt。
+     * 真 bug：Electron 里 `window.prompt` 是**被禁用**的（直接返回 null、不弹框），
+     * 所以剪贴板失败时用户根本拿不到诊断内容 —— 我设计的"点一下发我"就废了。
+     * 现在：复制成功 → 弹提示；失败 → 在页面上显示一个可全选复制的框。
+     */
+    if (copied) {
+      alert("诊断完成！\n\n结果已复制到剪贴板。\n请直接粘贴给我（Ctrl+V）。");
+      return;
+    }
+
+    const box = document.createElement("div");
+    box.style.cssText = [
+      "position:fixed", "inset:24px", "z-index:99999",
+      "background:#fff", "color:#111", "border:2px solid #8B91E8",
+      "border-radius:12px", "padding:16px", "overflow:auto",
+      "font:12px/1.5 monospace", "white-space:pre-wrap", "user-select:text",
+    ].join(";");
+    const tip = document.createElement("div");
+    tip.style.cssText = "font:600 14px/1.6 system-ui;margin-bottom:10px;color:#6D74D6";
+    tip.textContent = "诊断完成！请全选下面的文字（Ctrl+A）复制（Ctrl+C），发给我。点右上角×关闭。";
+    const close = document.createElement("button");
+    close.textContent = "×";
+    close.style.cssText = "float:right;font-size:20px;border:0;background:none;cursor:pointer";
+    close.onclick = () => box.remove();
+    const pre = document.createElement("div");
+    pre.textContent = text;
+    box.appendChild(close);
+    box.appendChild(tip);
+    box.appendChild(pre);
+    document.body.appendChild(box);
   }, 10000);
 }
