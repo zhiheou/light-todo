@@ -33,6 +33,7 @@ import {
   isCompletedToday,
   isOverdue,
   loadTasks,
+  loadTasksIfChanged,
   makeTask,
   nextTaskInstance,
   normalizeTasks,
@@ -41,7 +42,22 @@ import {
   sortTasks,
   toggleCompleted,
 } from "./lib/tasks";
-import { loadWorkMemos, makeMemo, normalizeMemos, saveWorkMemos, seedMemos } from "./lib/memos";
+import {
+  loadMemosIfChanged,
+  loadWorkMemos,
+  makeMemo,
+  normalizeMemos,
+  saveWorkMemos,
+  seedMemos,
+} from "./lib/memos";
+import {
+  bumpLocalRevision,
+  dataWatermark,
+  ensureExternalWriteWatch,
+  getLocalRevision,
+  itemsWatermark,
+  subscribeExternalWrite,
+} from "./lib/syncLock";
 import { loadWorkDimensions, saveWorkDimensions } from "./lib/dimensionsLocal";
 import { loadWorkGoals, saveWorkGoals } from "./lib/goalsLocal";
 import { makeDimension, normalizeDimensions } from "./lib/dimensions";
@@ -81,6 +97,24 @@ interface ToastState {
   message: string;
   kind: "info" | "danger";
   action?: { label: string; run: () => void };
+}
+
+/**
+ * v3.9.22：本机数据的水位 —— “本机最后被改动到什么时候”。
+ *
+ * 组成：
+ *   · `getLocalRevision()`：**本窗口**写盘的时刻（每次保存都登记）
+ *   · 工作区的任务/备忘的 `updatedAt` 最大值：**从磁盘读**，所以**桌宠窗口写的也在里面**
+ *
+ * ⚠️ 这里刻意**不用**组件 state：拉取 effect 的依赖里没有 workTasks，
+ * 闭包里的状态会停留在旧渲染上 —— 那样桌宠新记的那条会被漏掉，本 bug 原样复发。
+ * 磁盘才是权威（两个窗口共用一份 localStorage）。
+ *
+ * 个人空间是内存态、且只有主窗口会改（桌宠窗只认工作区），
+ * 所以由 `getLocalRevision()` 覆盖，不需要额外读盘。
+ */
+function localWatermark(): number {
+  return Math.max(getLocalRevision(), itemsWatermark(loadTasks("work"), loadWorkMemos()));
 }
 
 function dateKey(d: Date): string {
@@ -186,9 +220,39 @@ export default function App() {
   const notified = useRef<Set<string>>(new Set());  // 吉祥物：每个会话只登录问候一次 / 只搭话有限次数
   const mascotGreeted = useRef(false);
   const mascotChats = useRef(0);
-  // 本地最后编辑时间：pull 拉取时若已被本地更新盖过则丢弃旧服务端数据，避免覆盖用户刚做的修改
-  const lastLocalEdit = useRef(0);
   const lastPullStarted = useRef(0);
+
+  /**
+   * v3.9.22 🔴 跨窗口同步（修「说了记下了、列表里却没有」）
+   *
+   * 桌面版两个窗口共用一份 localStorage：桌宠窗（常驻桌面那只）+ 主窗口。
+   * 用户在桌宠里记的待办，写盘后**主窗口原先完全不知道**：
+   * 它的任务列表在内存里，每 30 秒 / 每次窗口获得焦点还会把服务器旧数据整份替换回来
+   * → 桌宠刚记的那条**最多活 30 秒**。更糟的是，用户去主窗口找它，
+   * 这个"点一下窗口"的动作正好触发拉取 —— 于是永远找不到，机器人却已经说了"记下了"。
+   *
+   * 现在：另一个窗口一改，本窗口立刻跟着读回来（storage 事件跨窗口可用，已实测）。
+   * 见 lib/syncLock.ts 里对整套机制的说明。
+   */
+  useEffect(() => {
+    ensureExternalWriteWatch();
+    const readBoth = () => {
+      const t = loadTasksIfChanged("work");
+      if (t) setWorkTasks(t);
+      const m = loadMemosIfChanged("work");
+      if (m) setWorkMemos(m);
+    };
+    const off = subscribeExternalWrite(readBoth);
+    // 兜底：storage 事件在极少数情况下会丢，窗口重新可见时对一次账
+    const onVisible = () => {
+      if (document.visibilityState === "visible") readBoth();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      off();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   useEffect(() => saveTasks("work", workTasks), [workTasks]);
   useEffect(() => saveWorkMemos(workMemos), [workMemos]);
@@ -229,7 +293,7 @@ export default function App() {
 
   const addTask = useCallback(
     (task: Task) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       if (mode === "work") setWorkTasks((prev) => [task, ...prev]);
       else setPersonalTasks((prev) => [task, ...prev]);
     },
@@ -238,7 +302,7 @@ export default function App() {
 
   const updateTask = useCallback(
     (id: string, patch: Partial<Task>) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Task[]) =>
         prev.map((task) =>
           task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task,
@@ -251,7 +315,7 @@ export default function App() {
 
   const toggleTask = useCallback(
     (id: string) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const now = new Date();
       // 未完成→完成 的循环任务必然生成下一实例，可提前确定以弹出提示
       const target = currentTasksRef.current.find((task) => task.id === id);
@@ -277,7 +341,7 @@ export default function App() {
 
   const deleteTask = useCallback(
     (task: Task) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const targetMode = mode;
       if (targetMode === "work") {
         setWorkTasks((prev) => prev.filter((t) => t.id !== task.id));
@@ -295,7 +359,7 @@ export default function App() {
 
   const updateMemo = useCallback(
     (id: string, patch: Partial<Memo>) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Memo[]) =>
         prev.map((memo) =>
           memo.id === id ? { ...memo, ...patch, updatedAt: Date.now() } : memo,
@@ -308,7 +372,7 @@ export default function App() {
 
   const toggleMemoPin = useCallback(
     (id: string) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Memo[]) =>
         prev.map((memo) =>
           memo.id === id ? { ...memo, pinned: !memo.pinned, updatedAt: Date.now() } : memo,
@@ -321,7 +385,7 @@ export default function App() {
 
   const deleteMemo = useCallback(
     (memo: Memo) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const targetMode = mode;
       // 记录引用该备忘的任务 id，撤销时恢复引用（避免撤销后关联丢失）
       const referencingIds = new Set<string>();
@@ -459,7 +523,7 @@ export default function App() {
        * 不打点的后果：刚写完备忘马上刷新页面 → 云端拉取时"防覆盖闸门"认不出本地更新 →
        * **用云端旧数据把它抹掉**，用户刚记的东西直接消失。
        */
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const memo = makeMemo({ text: raw, ...(tags && tags.length > 0 ? { tags } : {}) });
       if (mode === "work") setWorkMemos((prev) => [memo, ...prev]);
       else setPersonalMemos((prev) => [memo, ...prev]);
@@ -476,7 +540,7 @@ export default function App() {
   // v3.9 收件箱：把一条备忘"转为待办"——用 NLP 解析它文本里的时间/循环，转成任务并移出备忘。
   const handleConvertMemoToTask = useCallback(
     (memo: Memo) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const p = parseQuickAdd({ title: memo.text, notes: "", now: new Date() });
       const title = p.title && p.title !== "未命名任务" ? p.title : memo.text.trim() || "未命名任务";
       const task = makeTask({
@@ -663,7 +727,7 @@ export default function App() {
   /** 更新维度（按空间） */
   const updateDimension = useCallback(
     (id: string, patch: Partial<Dimension>) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Dimension[]) =>
         prev.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim));
       if (mode === "work") setWorkDimensions(apply);
@@ -674,7 +738,7 @@ export default function App() {
 
   const addDimension = useCallback(
     (name: string) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const dim = makeDimension({
         name: name.trim() || "新维度",
         sortOrder: currentDimensions.reduce((max, d) => Math.max(max, d.sortOrder), 0) + 1,
@@ -687,7 +751,7 @@ export default function App() {
 
   const deleteDimension = useCallback(
     (id: string) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const clearRef = (prev: Task[]) =>
         prev.map((task) => (task.dimensionId === id ? { ...task, dimensionId: undefined } : task));
       if (mode === "work") {
@@ -703,7 +767,7 @@ export default function App() {
 
   const addGoal = useCallback(
     (partial: Partial<Goal>) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const goal = makeGoal(partial);
       if (mode === "work") setWorkGoals((prev) => [...prev, goal]);
       else setPersonalGoals((prev) => [...prev, goal]);
@@ -714,7 +778,7 @@ export default function App() {
 
   const deleteGoal = useCallback(
     (id: string) => {
-      lastLocalEdit.current = Date.now();
+      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const clearRef = (prev: Task[]) =>
         prev.map((task) => (task.goalId === id ? { ...task, goalId: undefined } : task));
       if (mode === "work") {
@@ -826,7 +890,6 @@ export default function App() {
   // 服务端数据在后台解密核对，不一致才覆盖。完整校验仍由 30s 轮询兜底。
   const handleSessionRestore = useCallback(
     async (stored: { username: string; password: string; keySalt: string }) => {
-      const restoreStarted = Date.now();
       const workspace = await fetchWorkspace();
       if (!workspace) throw new Error("无法读取工作区");
       // 缓存命中（同一浏览器会话内刚完整校验过）→ 不走 PBKDF2，直接解密出首屏
@@ -853,7 +916,15 @@ export default function App() {
       }
       resetAllLocalData();
       if (data) {
-        applyAppData(data);
+        // v3.9.22：本机数据更新（比如刚在桌宠窗口里记的待办）→ 先留住，交给后台核对/自动上传推到服务器。
+        // 否则这一下"用服务器数据铺首屏"就会把它抹掉。
+        const localMark = localWatermark();
+        if (localMark > dataWatermark(data)) {
+          setWorkTasks(loadTasks("work"));
+          setWorkMemos(loadWorkMemos());
+        } else {
+          applyAppData(data);
+        }
       } else {
         // 空账号（罕见：老空号）→ 用全新 seed。
         // 注意：这里只铺 state、不上传，避免与服务端并发写入打架；
@@ -872,7 +943,11 @@ export default function App() {
       markSessionRevalidated(stored.username);
       // 后台核对：再拉一次最新密文并解密，抓取「上次保存之后服务端又变了」的情况
       // （多端同步的兜底；30s 轮询随后接管）。密钥正确性已由首屏 AES-GCM 认证证明，
-      // 这里不再重复跑 PBKDF2。期间用户没编辑（lastLocalEdit 早于恢复开始）才允许覆盖。
+      // 这里不再重复跑 PBKDF2。
+      // v3.9.22：允许覆盖的条件从"本窗口没编辑过"改成"**没有谁比服务端更新**" ——
+      // 本地水位包含桌宠窗口写的那份数据（见 lib/syncLock.ts），
+      // 否则用户刚在桌宠里记的待办，会被这里恢复出来的旧数据抹掉。
+      const localMark = localWatermark();
       void (async () => {
         try {
           const latest = await fetchWorkspace();
@@ -883,13 +958,13 @@ export default function App() {
             stored.keySalt,
             stored.username,
           );
-          if (fresh && lastLocalEdit.current < restoreStarted) applyAppData(fresh);
+          if (fresh && dataWatermark(fresh) >= localMark) applyAppData(fresh);
         } catch {
           // 网络抖动忽略；密码错误时后续轮询会持续失败
         }
       })();
     },
-    [applyAppData, resetAllLocalData],
+    [applyAppData, collectAppData, resetAllLocalData],
   );
 
   const handleLogout = useCallback(async () => {
@@ -1019,20 +1094,24 @@ export default function App() {
     let cancelled = false;
     const pull = async () => {
       lastPullStarted.current = Date.now();
+      // v3.9.22：哪一方"最后被改动得更晚"，就以哪一方为准。
+      // 本地水位 = 本窗口写盘时刻 ∪ 数据里最新的 `updatedAt`（**桌宠窗口写的就在这里面**）。
+      // 之前这里只认本窗口自己的按钮，桌宠记的那条看不见 → 被服务器旧数据整份盖掉。
+      const localMark = localWatermark();
       try {
         const workspace = await fetchWorkspace();
         if (!workspace?.data || !workspace.iv) return;
         // 拉取期间本地已有编辑：丢弃这次旧数据，避免覆盖用户刚做的修改
-        if (lastLocalEdit.current > lastPullStarted.current) return;
+        if (localMark > lastPullStarted.current) return;
         const data = await decryptAppData(
           { iv: workspace.iv, data: workspace.data },
           accountPassword,
           accountKeySalt,
         );
         if (cancelled || !data) return;
-        if (lastLocalEdit.current > lastPullStarted.current) return;
-        // 服务端数据比本地最后编辑更旧：本地改得更新，丢弃拉取结果
-        if (typeof data.updatedAt === "number" && data.updatedAt < lastLocalEdit.current) return;
+        if (localMark > lastPullStarted.current) return;
+        // 服务端数据比本地更旧：本地改得更新，丢弃拉取结果
+        if (dataWatermark(data) < localMark) return;
         setWorkTasks(normalizeTasks(data.workTasks || []));
         setWorkMemos(normalizeMemos(data.workMemos || []));
         setPersonalTasks(normalizeTasks(data.personalTasks || []));

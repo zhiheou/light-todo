@@ -46,10 +46,17 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   }, [memos]);
 
   // v3.9 与主窗口同步：主窗口改了数据（同源 localStorage）→ 本窗口跟着更新
+  //
+  // v3.9.22：**反方向也通了**。本窗口写盘时，浏览器自动给主窗口发 storage 事件，
+  // 主窗口据此立刻重读（见 App.tsx 的跨窗口同步 effect）——
+  // 否则用户刚在这里记的待办，会被主窗口 30 秒后的服务器拉取抹掉。
+  // （同窗口自己写的不触发，所以不存在自激循环。）
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "lighttodo:work:v1" || e.key === "lighttodo:personal:v1") {
         setTasks(loadTasks(mode as Mode));
+      } else if (e.key === "lighttodo:work-memos:v1") {
+        setMemos(loadWorkMemos());
       }
     };
     window.addEventListener("storage", onStorage);
