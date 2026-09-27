@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Dimension, Goal, GoalPeriod, Task } from "../types";
 import { goalIsActive, goalProgress, anchorOf } from "../lib/goals";
 import { dimensionColor } from "../lib/dimensions";
+import { isImeComposing } from "../lib/ime";
 
 interface GoalsViewProps {
   goals: Goal[];
@@ -94,7 +95,7 @@ export default function GoalsView({
               autoFocus
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && create()}
+              onKeyDown={(e) => e.key === "Enter" && !isImeComposing(e) && create()}
               placeholder={`${PERIOD_LABEL[tab]}目标，例如：读完一本书`}
               aria-label="目标标题"
             />
@@ -113,7 +114,7 @@ export default function GoalsView({
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && create()}
+            onKeyDown={(e) => e.key === "Enter" && !isImeComposing(e) && create()}
             placeholder="备注（可选）"
             aria-label="目标备注"
           />

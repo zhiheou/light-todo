@@ -3,6 +3,7 @@ import { Pin, PinOff, X, X as CloseTag } from "lucide-react";
 import type { Memo, Task } from "../types";
 import Markdown from "./Markdown";
 import { toggleCheckbox } from "../lib/markdown";
+import { isImeComposing } from "../lib/ime";
 
 interface MemoDrawerProps {
   memo: Memo;
@@ -168,7 +169,7 @@ export default function MemoDrawer({
             value={tagInput}
             onChange={(event) => setTagInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === ",") {
+              if (!isImeComposing(event) && (event.key === "Enter" || event.key === ",")) {
                 event.preventDefault();
                 if (tagInput.trim()) addTag(tagInput);
               }

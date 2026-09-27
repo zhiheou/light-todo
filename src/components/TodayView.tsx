@@ -16,6 +16,7 @@ import { useState, Fragment } from "react";
 import type { Dimension, Task, TodayMode } from "../types";
 import { isOverdue } from "../lib/tasks";
 import { dimensionColor } from "../lib/dimensions";
+import { isImeComposing } from "../lib/ime";
 import TaskList from "./TaskList";
 
 interface TodayViewProps {
@@ -196,7 +197,7 @@ function DimensionMode({
                 onChange={(e) => setRenameValue(e.target.value)}
                 onBlur={() => commitRename(dim)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitRename(dim);
+                  if (e.key === "Enter" && !isImeComposing(e)) commitRename(dim);
                   if (e.key === "Escape") setRenaming(null);
                 }}
                 aria-label="重命名维度"
@@ -262,7 +263,7 @@ function DimensionMode({
                 autoFocus
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && create()}
+                onKeyDown={(e) => e.key === "Enter" && !isImeComposing(e) && create()}
                 placeholder="新维度名称"
                 aria-label="新维度名称"
               />

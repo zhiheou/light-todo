@@ -1,6 +1,6 @@
 {
   "name": "light-todo-desktop",
-  "version": "3.9.22",
+  "version": "3.9.23",
   "private": true,
   "description": "轻待办桌面版：桌宠常驻桌面",
   "main": "main.js",

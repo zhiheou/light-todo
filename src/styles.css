@@ -3975,6 +3975,38 @@ html[data-card-style="colorful"] .priority.p4 {
   to { opacity: 1; transform: translate(-30%, -100%) scale(1); }
 }
 
+/* ============================================================
+   v3.9.23 到点提醒气泡（桌宠窗口专用）
+   用户原话：「留桌宠，让桌宠提醒」—— 他只开桌宠，主窗口关着。
+   提醒以前只写在主窗口里，所以主窗口不开就永远不响。
+   现在桌宠窗自己扫、自己弹，气泡就贴在它旁边。
+   ============================================================ */
+.pet-remind-bubble {
+  position: fixed;
+  /* 没读到桌宠坐标时的兜底位置：右下角（桌宠默认也在那儿） */
+  right: 24px;
+  bottom: 96px;
+  z-index: 95;
+  max-width: 260px;
+  background: #17233a;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border-bottom-left-radius: 4px; /* 朝桌宠那一侧收成尖角，像"它说的" */
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.3);
+  animation: pet-remind-pop 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* 不加这个的话整块会挡住点击、且会挡住桌宠的穿透判定 */
+  pointer-events: none;
+  word-break: break-word;
+}
+@keyframes pet-remind-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 /* v3.7 形态馆增强 */
 .pet-expr-cell.active {
   border-color: var(--teal, #0f766e) !important;

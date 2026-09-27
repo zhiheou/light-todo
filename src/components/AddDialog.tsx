@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Repeat, X } from "lucide-react";
 import type { Dimension, Goal, Priority, RepeatRule } from "../types";
 import { parseQuickAdd } from "../lib/nlp";
+import { isImeComposing } from "../lib/ime";
 import { describeRepeat, shortRepeatLabel } from "../lib/repeat";
 
 export interface TaskDraft {
@@ -154,7 +155,7 @@ export default function AddDialog({
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey && title.trim()) {
+                  if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event) && title.trim()) {
                     event.preventDefault();
                     handleTaskSubmit();
                   }

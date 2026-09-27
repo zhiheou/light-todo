@@ -23,6 +23,14 @@ export interface BrainCtx {
 
 export type BrainAction =
   | { type: "addTask"; parsed: QuickAddParse }
+  /**
+   * v3.9.23 🔴 一句话多件事：「明天开会，另外记得买牛奶」。
+   *
+   * 本地小脑只**识别**多件事并给出逐条草稿（纯函数好测），
+   * 真正的入库交给界面层用和单条完全相同的通道（能力闸门、同步、updatedAt 都在那边）。
+   * 每条各自带自己的标题和日期 —— 旧行为是把两件事拼成一条、只认第一个日期。
+   */
+  | { type: "addTasks"; items: Array<{ title: string; dueDate: string; dueTime: string; remindAt: string }> }
   | { type: "addMemo"; text: string; tags?: string[] }
   | { type: "openTask"; id: string }
   | { type: "confirm"; candidateId: string }
@@ -49,7 +57,13 @@ export interface BrainReply {
    * v3.9 多候选待选：本地列出了几个候选让用户选，调用方需**记住**，
    * 用户下一条回复先来这里匹配（否则"开会"会被漏给 AI 编造）。
    */
-  choices?: Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }>;
+  choices?: Array<{
+    id: string;
+    title: string;
+    op: "delete" | "complete" | "uncomplete" | "update" | "confirmDone";
+    /** op === "confirmDone" 时：true=标完成，false=标回未完成 */
+    done?: boolean;
+  }>;
   /** v3.9 兜底：看起来像一件小事，带原文供上层一键记下 */
   quickAdd?: string;
   /** v3.9 学习日志：这是"没答好"的兜底回复，上层应记入学习日志 */
@@ -184,6 +198,42 @@ function tryDelete(raw: string, ctx: BrainCtx): BrainReply | null {
   }
   // 疑问句也不能触发删除（"开会删了吗"是在问，不是在让删）
   if (/(吗|呢|么|了没)\s*$/.test(raw) || /(是否|是不是|有没有)/.test(raw)) return null;
+  /**
+   * v3.9.23 🔴 纯指代（「把它删了」「刚说的那条删了」「刚才那个删掉」）——
+   * 剥掉指代词和外壳词后**一个任务名都没剩**。
+   *
+   * 改任务（tryUpdate）早就支持指代，删除一直没跟上 → 一律回"没找到要删的任务"，
+   * 用户会觉得"这 AI 瞎了"，而那条任务就明晃晃躺在列表里。
+   *
+   * ⚠️ 只在**剥完为空**时才走这条路：「把会议纪要删了」剥完还剩"会议纪要"（真关键词），
+   * 走正常匹配，绝不能被当成指代而误删别的任务。
+   */
+  const pronounKw = pronounKeyword(raw);
+  /**
+   * ⚠️ 纯指代只在**没点名任何任务**时才成立。
+   * `pronounKeyword` 会把"交房租"里的"交"当外壳词剥掉、剩下"房租"（真关键词）→ 不是指代；
+   * 而「把它删了」「刚说的那条删了」剥完是空的 → 才走指代通道。
+   */
+  if (!pronounKw || pronounKw.length < 2) {
+    const sole = soleOpenTask(ctx);
+    if (sole) {
+      return {
+        text: `你确定要删除「${sole.title}」吗？删除后可以撤销。`,
+        awaitingConfirm: true,
+        action: { type: "confirm", candidateId: sole.id },
+      };
+    }
+    const open = ctx.tasks.filter((t) => !t.completed);
+    if (open.length === 0) {
+      return { text: "你现在没有未完成的任务，没有可删的啦。", localOnly: true };
+    }
+    // 多条：不能瞎猜删哪条（猜错就是真删数据）→ 列出来让用户选
+    return {
+      text: `你想删哪一个？\n${open.map(fmtCand).join("\n")}`,
+      localOnly: true,
+      choices: open.map((t) => ({ id: t.id, title: t.title, op: "delete" as const })),
+    };
+  }
   const kw = raw
     .replace(/(帮我|请|你|把|那|个|这条|这个|刚才的|刚刚的|刚才|刚刚|之前|的记录|记录|条目|条|任务|待办|删掉|删除|清掉|去掉|移除|划掉|一下|的)/g, "")
     .trim();
@@ -211,6 +261,40 @@ ${list}`,
   };
 }
 
+
+/**
+ * v3.9.23 🔴 指代说法：「把它删了」「刚说的那条删了」「刚才那个标完成」——
+ * 用户根本没提任务名，全靠"指"。
+ *
+ * 改任务（tryUpdate）早就支持指代，**删除和完成没跟上**，
+ * 于是这两句一律回"没找到要删的任务"，用户会觉得"这 AI 瞎了"。
+ *
+ * ⚠️ 判据要**窄**：只有把指代词和外壳词全部剥完、剩下的关键词是空的时候才算指代。
+ * 否则「把会议纪要删了」会被当成指代（"纪要"是真关键词，不该走指代通道）。
+ * 实现见 `pronounKeyword`：只删这些固定词，删完还剩东西就不是指代。
+ */
+/**
+ * 指代/外壳词表。⚠️ **长词必须排在短词前面** —— JS 的 `|` 是有顺序的，
+ * 写成 `那|那个` 的话"那个"永远匹配不上"那"（会剩一个"个"字）。
+ * 第一版就是这么写的，实测「把刚说的那个标完成」剥完剩下"个标"，
+ * 于是被判成"用户在说一个叫『个标』的任务"。
+ */
+const PRONOUN_WORDS =
+  /(帮我|请|麻烦|你|把|将|他们|她们|它们|它|他|她|那个|这(?:个|条|些)|那些|那|这|刚才的|刚刚的|才说的|才说|刚说的|刚说|上面的|前面(?:的|那条|这个)?|上次的|之前的|最后一个|最后那条|刚才|刚刚|上面|前面|上次|之前|说的|提到|刚提|新加的|最新的|已完成|未完成|取消完成|撤销完成|的记录|记录|条目|任务|待办|删掉|删除|清掉|去掉|移除|划掉|删|完成|做完|搞定|办完|打勾|勾掉|弄完|标成|标记|标回|标|改成|恢复成|为|一下|条|个|的|了|吧|呢)/g;
+
+/** 剥掉指代词后剩下的关键词；为空 = 这句话是**纯指代**（没提任务名） */
+function pronounKeyword(raw: string): string {
+  return raw.replace(PRONOUN_WORDS, "").replace(/\s+/g, "").trim();
+}
+
+/**
+ * 纯指代时该操作哪一条：未完成任务只有一条 → 就是它；多条 → null（交给上层列候选让用户选）。
+ * ⚠️ 多条时**绝不能瞎猜** —— 猜错就是真删/真改数据。
+ */
+function soleOpenTask(ctx: BrainCtx): Task | null {
+  const open = ctx.tasks.filter((t) => !t.completed);
+  return open.length === 1 ? open[0] : null;
+}
 
 /** 宽松匹配任务：用户说法和任务名常不同序（"周报写完了" vs "写周报"）→ 双向包含 + 去动词后缀 */
 function matchTasks(pool: Task[], kw: string): Task[] {
@@ -274,11 +358,21 @@ function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
    * 旧表只认"取消完成|没完成|又没做|恢复|撤销完成|还没做"，
    * 而"未完成"这个最直白的说法（标回未完成/改成未完成/恢复成未完成）一个都不认。
    */
-  const undoWord = /(取消完成|没完成|未完成|又没做|恢复|撤销完成|还没做|还没弄|没弄完)/.test(raw);
+  /**
+   * v3.9.23 🔴 补「还没写完/没开完/没做好」这类**进度汇报**（真 bug，⭐高）。
+   *
+   * 实测：「周报还没写完」→ doneWord 认出了"写完"、undoWord 一个都不认 →
+   * 用户只是汇报一下进度，**任务被直接划掉了**。
+   * doneWord 里有的每个"X完"，undoWord 都得有对应的"没X完"：
+   *   写完/开完/弄完/做完/搞定/办好/做好 → 没写完/没开完/没弄完/没做完/没搞定/没办好/没做好…
+   * 统一用「还没？/没 + 动作 + 完」这条规律收口，比一个个列更不容易漏。
+   */
+  const undoWord =
+    /(取消完成|没完成|未完成|又没做|恢复|撤销完成|还没做|还没弄|没弄完|还没写|没写完|还没开|没开完|还没做|没做完|没做完|还没弄好|没弄好|没做好|还没办好|没办好|还没搞定|没搞定|还没干完|没干完|还没搞完|没搞完|还没收尾)/.test(raw);
   if (!doneWord && !undoWord) return null;
   const kw = raw
     .replace(
-      /(帮我|请|你|把|那|个|这条|这个|任务|待办|已经|一下|标成|标记|标回|改成|恢复成|为|已完成|完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|取消完成|没完成|未完成|又没做|恢复|撤销完成|还没做|还没弄|没弄完|了|的)/g,
+      /(帮我|请|你|把|那|个|这条|这个|任务|待办|已经|一下|标成|标记|标回|改成|恢复成|为|已完成|完成|做完|搞定|办完|打勾|勾掉|弄完|做好了|写完了|写完|开完了|开完|没写完|还没写完|没开完|还没开完|没做好|还没做好|办好了|搞定了|取消完成|没完成|未完成|又没做|恢复|撤销完成|还没做|还没弄|没弄完|了|的)/g,
       "",
     )
     .trim();
@@ -292,8 +386,60 @@ function tryComplete(raw: string, ctx: BrainCtx): BrainReply | null {
    * 现在：所有任务都参与匹配；已经处于目标状态的，回复里明确说明（不撒谎说改过了）。
    */
   const pool = ctx.tasks;
+  const open = ctx.tasks.filter((t) => !t.completed);
+  const openSingle = open.length === 1 ? open[0] : null;
+  /** 纯指代专用：候选池是**全部任务**；非指代时仍按"只有一条未完成"兜底问一句 */
+  const allSingle = ctx.tasks.length === 1 ? ctx.tasks[0] : null;
+  /**
+   * v3.9.23 🔴 完成/取消完成也认**纯指代**（「把刚说的那个标完成」）——
+   * 之前只有改任务认，这里一律回"没找到"，跟删除那边是同一类毛病。
+   * 同样很窄：剥完只剩 ≤1 个字才算指代（"把会议纪要删了"剥完是"会议纪要"，走正常匹配）。
+   */
+  const pronounKwC = pronounKeyword(raw);
+  const pronounTarget = !pronounKwC || pronounKwC.length < 2 ? (allSingle ?? openSingle) : null;
   const candidates = matchTasks(pool, kw);
+  /**
+   * v3.9.23 纯指代（「把刚说的那个标完成」）：剥完没剩关键词。
+   * 一条 → 直接执行；多条 → 列出来让用户选（跟删除那边对齐，绝不瞎猜）。
+   */
+  if (pronounTarget === null && (!pronounKwC || pronounKwC.length < 2)) {
+    if (open.length === 0 && ctx.tasks.length === 0) {
+      return { text: "你现在还没有任务，先建一个吧～", localOnly: true };
+    }
+    if (open.length > 1) {
+      return {
+        text: `你说哪个？\n${open.map(fmtCand).join("\n")}`,
+        localOnly: true,
+        choices: open.map((t) => ({
+          id: t.id,
+          title: t.title,
+          op: (undoWord ? "uncomplete" : "complete") as "uncomplete" | "complete",
+        })),
+      };
+    }
+    // open.length === 0（可能全都完成了）或恰好 1 条，都由 pronounTarget 兜住
+  }
   if (candidates.length === 0) {
+    /**
+     * v3.9.23 🔴 找不到就**退一步问**，而不是干巴巴地"没找到"。
+     *
+     * 实测场景：「周报还没写完」—— 用户汇报进度，库里根本没有"周报"这条任务，
+     * 旧回复是"没找到要完成的任务。说具体点？" → 用户只会觉得它又瞎了。
+     * 库里只有一条未完成任务时，最可能的意图就是那条，问一句比报错强得多。
+     * ⚠️ 只是**问**，不执行动作 —— 用户不说"是"就什么都不会改。
+     */
+    const fallbackTarget = pronounTarget ?? openSingle;
+    if (fallbackTarget) {
+      // 纯指代（用户压根没提任务名）时别回一句"没找到叫「刚说标」的任务"——那串词是剥剩下的渣
+      const isPronoun = !pronounKwC || pronounKwC.length < 2;
+      const lead = isPronoun ? "" : `我没找到叫「${kw}」的任务。`;
+      return {
+        text: `${lead}你是说「${fallbackTarget.title}」吗？（回「是」我就${undoWord ? "标回未完成" : "标完成"}，回「不是」就算了）`,
+        localOnly: true,
+        awaitingConfirm: true,
+        choices: [{ id: fallbackTarget.id, title: fallbackTarget.title, op: "confirmDone" as const, done: !undoWord }],
+      };
+    }
     return { text: `没找到要${undoWord ? "取消完成" : "完成"}的任务。说具体点？比如「完成了 开会」。`, localOnly: true };
   }
   if (candidates.length > 1) {
@@ -494,8 +640,22 @@ function tryAddMemo(raw: string): BrainReply | null {
 /** 去掉"帮我记个待办：/给我记一下/记得…"这类外壳，保留正文（开头/结尾都会去） */
 function stripHelp(raw: string): string {
   let s = raw;
+  /**
+   * v3.9.23 🔴 「记下来」整体吃掉（真 bug，而且是**它自己教用户说的话**）。
+   *
+   * 兜底回复里写着「回『记下来』我就建」/「回『记下来』我就建个待办」，
+   * 用户照着回「记下来」→ 下面那条规则只吃掉了"记"，"下来"留成正文 →
+   * 建出一条名叫**「下来」**的任务；「帮我记下来，明天开会」→「下来， 开会」。
+   *
+   * 所以"记"后面跟"下来/下/一下/一笔/着/得"这类补语时，必须**连补语一起**吃掉。
+   * （"记得/记住/别忘了"已在下面单独处理，这里不再重复。）
+   */
+  s = s.replace(
+    /^(?:帮我|给我|替我|麻烦|请)?\s*(?:记录|记事|记)\s*(?:下来|下|一下|一笔|着|得|住)\s*[\s，,：:、的]*/i,
+    "",
+  );
   // 尾部外壳：…帮我记一下 / 帮我记 / 记一下
-  s = s.replace(/\s*(?:帮我|给我|替我)?\s*(?:记(?:个)?(?:一下)?|安排一下|加一下)\s*$/i, "");
+  s = s.replace(/\s*(?:帮我|给我|替我)?\s*(?:记(?:个)?(?:一下|下来)?|安排一下|加一下)\s*$/i, "");
   /**
    * v3.9.18 🔴 开头外壳（**必须整词匹配**）。
    *
@@ -524,6 +684,67 @@ function stripHelp(raw: string): string {
   // 开头语气/称呼（"你好呀" 这类留给问候分支，不在建任务里剥到空）
   s = s.replace(/^(?:请|麻烦)\s*/i, "");
   return s.replace(/^[\s,，。.!！?？:：;；-]+|[\s,，。.!！?？:：;；-]+$/g, "").trim();
+}
+
+/**
+ * v3.9.23 🔴 一句话说两件事 —— 切分判据。
+ *
+ * 真 bug（用户实测）：
+ *   「明天开会，另外记得买牛奶」→ 建成一条「开会，另外记得买牛奶」
+ *   「明天开会，后天交材料」    → 只取了第一个日期，后天的信息直接丢了
+ *
+ * 只在两种情况下才切（宁可少切，也别把一件事硬拆成两条）：
+ *   ① 逗号后面跟着**连接词**：另外/还有/顺便/以及/再/也…
+ *   ② 逗号后面跟着**新的日期或钟点**：明天/后天/下周/周五/3号/下午3点…
+ * 「开会，讨论预算」这种同一件事的补充说明，两条都不满足 → 不切，保持整句。
+ */
+const MULTI_LEAD =
+  /^(?:另外一个|另一件|另一个|另外|还有|顺便|以及|外加|再有|再|也)\s*(?:帮我|给我|替我|麻烦|请)?\s*(?:记得|记住|别忘了|别忘记|记着|要|需要)?\s*[，,：:、]?\s*/;
+const MULTI_SPLIT = new RegExp(
+  [
+    "[，,；;]\\s*(?=(?:另外一个|另一件|另一个|另外|还有|顺便|以及|外加|再有|再|也))",
+    "[，,；;]\\s*(?=(?:今天|明天|后天|大后天|下周|这周|本周|周末|周[一二三四五六日天]|星期[一二三四五六日天]|礼拜[一二三四五六日天]|\\d{1,2}[点号日]|上午|下午|晚上|中午|早上|傍晚|凌晨))",
+  ].join("|"),
+);
+/** 切成 2~3 段才算"多件事"；更多段多半是误切，按原样当一条处理 */
+export function splitMultiTasks(raw: string): string[] {
+  const parts = raw
+    .split(MULTI_SPLIT)
+    .map((s) => s.replace(MULTI_LEAD, "").trim())
+    .filter(Boolean);
+  return parts.length >= 2 && parts.length <= 3 ? parts : [];
+}
+
+/** 像一件真待办的内容词（至少一段命中，整句才按"多件事"处理） */
+const MULTI_TODO =
+  /(待办|任务|开会|会议|面试|出差|汇报|周报|月报|交|买|取|寄|送|修|改|准备|打卡|回复|体检|缴费|还款|报名|合同|预算|房租|方案|材料|复习|考试|快递|药|饭|票|钱|班|约|见)/;
+
+/** v3.9.23：「明天开会，另外记得买牛奶」→ 两条待办（各自的日期分别解析） */
+function tryMultiTasks(raw: string, now: Date): BrainReply | null {
+  const t = raw.trim();
+  // 跟 tryAddTask 同一道闸：疑问句、撤销意图一律不建任务
+  if (/[?？]/.test(t)) return null;
+  if (/(吗|呢|么|了没|了没有|吧)\s*$/.test(t)) return null;
+  if (/(是否|是不是|有没有|做了没有|完了没有)/.test(t)) return null;
+  if (/(还有|还剩|哪些|什么|怎么|如何|为什么|为啥|能不能|可不可以|多久|几点|几号|星期几|周几|在哪|是谁)/.test(t)) return null;
+  // ⚠️ 撤销/否定句不切：「明天不开会了，另外也不买牛奶了」是两句撤销，不是两件待办
+  if (/(取消|别记|算了|不记了|不去了|取消了|不[\S]{0,4}了)/.test(t)) return null;
+  const pieces = splitMultiTasks(t);
+  if (pieces.length < 2) return null;
+  // 至少一段像真待办 —— 否则可能只是闲聊里带了两个逗号，别硬拆
+  if (!pieces.some((p) => MULTI_TODO.test(p))) return null;
+  const items = pieces.map((p) => {
+    const q = parseQuickAdd({ title: stripHelp(p), notes: "", now });
+    return { title: q.title, dueDate: q.dueDate, dueTime: q.dueTime, remindAt: q.remindAt };
+  });
+  const bad = items.some(
+    (it) => !it.title || it.title === "未命名任务" || /^[了哦嗯啊吧呢的]+$/.test(it.title),
+  );
+  if (bad) return null;
+  const lines = items
+    .map((it) => `「${it.title}」⏰ ${it.dueDate ? `${it.dueDate}${it.dueTime ? " " + it.dueTime : ""}` : "未设日期"}`)
+    .join("\n");
+  return { text: `好，我帮你记下这 ${items.length} 件事：\n${lines}`, action: { type: "addTasks", items } };
 }
 
 /** 判断是否"建待办/任务"（自然语言日期交给 parseQuickAdd） */
@@ -666,7 +887,19 @@ function tryQuery(raw: string, ctx: BrainCtx): BrainReply | null {
   const ask = /(有什么|哪些|安排是|安排吧|查|列|看看|看下|盘点|汇总|忙什么|要做|待办是|有啥|多少|几个|还剩|剩下|还有|没做|未完成|没完成|剩下的|待办的)/.test(raw) && !/(建|添加|加个|记下|记个|安排一个|安排个)/.test(raw);
 
   // 「还有多少没做 / 未完成几个 / 剩下的任务」→ 统计未完成
-  const askRemaining = ask && /(未完成|没完成|没做|没干|剩余|剩下|还剩|还有多少|多少.*(待办|任务|事)|几件|几个)/.test(raw) && !/逾期|过期|明天/.test(raw);
+  /**
+   * v3.9.23 🔴 补「还有哪些待办 / 都有什么任务 / 有什么待办」这一类。
+   *
+   * 真 bug：旧判据要求出现"未完成/没做/剩下/多少/几个"之一，
+   * 而「还有哪些待办」一个都不占（"哪些"和"待办"当时都不在表里）→ 落空 →
+   * **掉进建任务分支，建出一条叫「还有哪些待办」的待办**（回归测试抓到的）。
+   */
+  const askRemaining =
+    ask &&
+    /(未完成|没完成|没做|没干|剩余|剩下|还剩|还有多少|多少.*(待办|任务|事)|几件|几个|哪些|都有什么|有什么|清单|列表)/.test(raw) &&
+    // ⚠️ 带日期指向的问句归下面"今天/明天/逾期"三条管，
+    //    否则「今天有什么安排」会被"统计未完成"抢先答成"你还有 N 件没完成"（实测踩过）
+    !/逾期|过期|明天|今天|今日|现在|当下|本周|最近/.test(raw);
   if (askRemaining) {
     const open = ctx.tasks.filter((t) => !t.completed);
     if (open.length === 0) return { text: "你已经全部完成啦，一件不剩，厉害！🎉" };
@@ -696,6 +929,38 @@ function tryQuery(raw: string, ctx: BrainCtx): BrainReply | null {
     if (tomorrowList.length === 0) return { text: "明天没有安排。" };
     const list = tomorrowList.slice(0, 8).map(fmtTask).join("\n");
     return { text: `明天（${niceDay(tomorrow, now)}）有 ${tomorrowList.length} 件：\n${list}` };
+  }
+  /**
+   * v3.9.23 🔴 「帮我查一下交房租」——查**某一条任务本身**。
+   *
+   * 真 bug：这句一度被离题拦截器当成"越界请求"回绝（已修，见 isOffTopic）。
+   * 放行之后还需要有人真正接住它：上面四条查的都是"今天/明天/逾期/还剩"，
+   * 没有一条认得出"查某条任务"。落空就会掉进建任务分支，建出一条叫
+   * 「查一下交房租」的待办 —— 比拒绝还糟。
+   *
+   * ⚠️ 必须放在上面四条**之后**：否则「查一下明天的安排」会被这条当成
+   * "查一个叫『明天』的任务"。
+   */
+  if (ask) {
+    const lookupKw = raw
+      .replace(/[。．.!！？?，,、；;：:\s]+/g, " ")
+      .trim()
+      .replace(/(帮我|请|麻烦|给我|查一下|查查|查询|查下|查|看一下|看看|看下|的|了|任务|待办|进度|状态)/g, "")
+      .trim();
+    if (lookupKw.length >= 2) {
+      const hits = matchTasks(ctx.tasks, lookupKw);
+      if (hits.length === 1) {
+        const t = hits[0];
+        const when = t.dueDate ? `${t.dueDate}${t.dueTime ? " " + t.dueTime : ""}` : "未设日期";
+        return {
+          text: `「${t.title}」${t.completed ? "已经完成 ✅" : "还没完成"}，时间：${when}。`,
+        };
+      }
+      if (hits.length > 1) {
+        return { text: `找到几条，你要看哪个？\n${hits.map(fmtCand).join("\n")}` };
+      }
+      return { text: `没找到叫「${lookupKw}」的任务。`, localOnly: true };
+    }
   }
   return null;
 }
@@ -760,14 +1025,23 @@ export function isGrantDeleteIntent(raw: string): boolean {
 export function readConfirm(raw: string): { yes: boolean } | null {
   const t = raw.trim();
   // ① 否定优先：出现任何"别/不用/不要/先不/等等/取消/算了/**不过**"等 → 一律算否
-  // 注意：不需要前面的分隔符 —— "对，不过先等等" 里"不过"紧跟在逗号后，
-  // 而"不过"本身已经是明确的转折（等于否决前面那句）。
   const NEG = /别|不用|不要|不删|不记|不改|取消|算了|等等|等会|等一下|先不|暂时不|回头再|以后再说|不过|先缓缓|再说吧/;
   if (NEG.test(t)) return { yes: false };
 
-  // ② 肯定：必须**整句**为肯定词（末尾可以有标点），不接受"好的，先别删"这类混合句
-  const YES_FULL = /^(?:是的?|是|确定|确认|删|删吧|好|好的|行|可以|去吧|嗯|对|ok|OK|Ok)[。.!！~～\s]*$/;
+  /**
+   * ② 肯定：必须**整句**为肯定词（末尾可以有标点），不接受"好的，先别删"这类混合句。
+   *
+   * v3.9.23 🔴 补「是，删掉」——**确认气泡里那颗按钮发出去的原话**。
+   * 它一直是 YES_FULL 的漏网之鱼：点按钮 → 返回 null → 落到"当普通对话处理"
+   * → 回一句"抱歉，我没找到要删的任务"。结果就是：**按钮永远删不掉，只有手打"好"才行。**
+   * 顺带把「确定删/确认删除/删掉吧/是的删掉」这类口语确认一起收进来。
+   * ⚠️ 这条只放宽**肯定**的写法，否定仍然一律优先（上面①），三道防幻觉闸门没动。
+   */
+  const YES_FULL = /^(?:(?:是|对|嗯|好|行|可以|确定|确认)\s*[，,]?\s*)?(?:是的|是|确定|确认|删|删吧|删掉|删除|好|好的|行|可以|去吧|嗯|对|ok|OK|Ok)[。.!！~～\s]*$/;
   if (YES_FULL.test(t)) return { yes: true };
+  if (/^(?:是的|对|嗯|好)?\s*[，,]?\s*(?:删掉吧|删除吧|确认删除|确定删除|就删吧|删了吧)[。.!！~～\s]*$/.test(t)) {
+    return { yes: true };
+  }
 
   const NO_FULL = /^(?:不|不要|别|取消|算了|先不|不了|no|No|NO)[。.!！~～\s]*$/;
   if (NO_FULL.test(t)) return { yes: false };
@@ -787,9 +1061,29 @@ const OFF_TOPIC = [
   "色情", "成人", "毒品", "武器", "钓鱼", "诈骗",
   "中美关系", "特朗普", "拜登", "政治", "选举", "报复", "整治", "整死", "搞垮",
   "数学题", "解方程", "算一下这个", "物理题", "化学", "作业",
-  "新闻", "今天几号农历", "帮我查",
+  "新闻", "今天几号农历",
   "怎么做菜", "菜谱", "推荐电影", "推荐书", "推荐音乐", "讲个故事", "讲个笑话",
 ];
+
+/**
+ * 「查」要**看宾语**，不能光看这两个字。
+ *
+ * v3.9.23 🔴 真 bug：「帮我查一下交房租」被回"这些我可帮不上忙" ——
+ * 用户明明是在问自己的待办，却被当成越界请求挡在门外。
+ * （不带"帮我"的「查一下明天的安排」反而是正常的，说明问题出在这个词条太秃。）
+ *
+ * 现在：只有当"查"的宾语是**外部世界的话题**（天气/股票/新闻/航班…）时才算离题；
+ * 跟待办有关的（查一下交房租 / 查查今天的安排 / 帮我查下还有什么没做）一律放行。
+ *
+ * ⚠️ 判据只看**宾语**，不看有没有日期词：
+ *   「查一下明天的安排」→ 宾语是"安排"（内部）→ 放行
+ *   「查一下明天的股票」→ 宾语是"股票"（外部）→ 拦。日期不改变宾语的性质。
+ */
+const LOOKUP_EXT_RE =
+  /(天气|气温|下雨|会不会下|股票|基金|汇率|币价|金价|油价|新闻|热搜|百科|快递单号|物流|航班|车次|机票|火车|菜谱|做法|歌词|翻译|单词|地图|路线|导航|附近|营业时间|电话|号码|怎么走|在哪里|是谁|什么意思)/;
+function isLookup(raw: string): boolean {
+  return /查/.test(raw) && LOOKUP_EXT_RE.test(raw);
+}
 const OFF_TOPIC_RE = new RegExp(OFF_TOPIC.join("|"), "i");
 
 /** 正则型离题：推荐/查询类（措辞多变，用模式而非固定词） */
@@ -811,12 +1105,22 @@ export function isOffTopic(raw: string): boolean {
   const t = raw.trim();
   if (OFF_TOPIC_RE.test(t)) return true;
   if (OFF_TOPIC_PATTERNS.some((re) => re.test(t))) return true;
+  /**
+   * v3.9.23 🔴 「查」单独判：宾语是外部话题才算离题。
+   * （原先是词表里一个光秃秃的"帮我查"，把「帮我查一下交房租」也误伤了）
+   */
+  if (isLookup(t)) return true;
   // 明确"动手做技术活"（写代码/做网站/教编程）→ 拒绝进 AI；但有时间/待办语义的"和后端开会"不误伤
   const hasTime = /(明天|今天|后天|周[一二三四五六日天]|\d{1,2}月|\d{1,2}日|上午|下午|晚上|今晚|\d+点|\d+:\d+|号)/.test(t);
   const hasTodoWord = /(待办|任务|开会|会议|约|安排|提醒|行程|备忘|去|到|看|交|汇报|面试|出差)/.test(t);
   if (BUILD_VERB_RE.test(t) && CODE_NOUN_RE.test(t) && !hasTime && !hasTodoWord) return true;
   // 明显的"帮我做件事/答个题/查个东西"但没提任务/备忘/情绪 → 拒绝进 AI
   const SERVICE_REQ = /^(帮我|请|给我|能不能|可以|麻烦|帮忙|帮我弄|搞)/;
+  /**
+   * v3.9.23 🔴 "帮我查一下X"里的"查"单独放行 —— 这个字在待办语境里是最常见的动词之一
+   * （查一下还剩几件、查查今天的安排），不能因为句首是"帮我"就整个判成越界。
+   */
+  if (/查/.test(t) && !isLookup(t)) return false;
   /**
    * v3.9.20 🔴 "帮我记/帮我加/帮我建"是**最明确的待办交代**，绝不能被判成离题。
    *
@@ -868,6 +1172,19 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
     const feel = tryFeeling(text);
     if (feel) return feel;
   }
+  /**
+   * v3.9.23 🔴 一句话两件事，必须在 tryAddTask **之前**试。
+   *
+   * 真 bug（用户实测）：
+   *   「明天开会，另外记得买牛奶」→ 建成一条「开会，另外记得买牛奶」
+   *   「明天开会，后天交材料」    → 只取了第一个日期，后天的信息直接丢了
+   * ⚠️ 放在 tryAddTask 之后是没用的 —— 单条那条会把整句吃掉并提前 return，
+   *    多件事分支永远轮不到（第一版就是这么写的，实测没生效）。
+   * 位置：情绪分支之后、单条建任务之前；上面那些更明确的意图（删/完成/改/查/备忘）
+   * 早就 return 了，抢不走。
+   */
+  const multi = tryMultiTasks(text, ctx.now ?? new Date());
+  if (multi) return multi;
   const task = tryAddTask(text);
   if (task) return task;
   if (hasTaskIntent) {

@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { Send, Settings2, Trash2, X } from "lucide-react";
 import type { Mode, MascotMood, PetExpressionId, PetSkin, Priority, Task } from "../types";
 import type { StateId } from "../lib/bloub/states";
+import { isImeComposing } from "../lib/ime";
 import type { TaskDraft } from "./AddDialog";
 import MascotAvatar from "./MascotAvatar";
 import PetShell, { type PetMenuAction } from "./PetShell";
@@ -22,11 +23,15 @@ import {
   readConfirm,
   type BrainAction,
   type BrainCtx,
+  type BrainReply,
 } from "../lib/mascotBrain";
 import { loadPetSkin, savePetSkin } from "../lib/petSkin";
 import { openMainWindow, quitApp, registerHitArea, reportChatOpen } from "../lib/desktopBridge";
 import { startDiagnose } from "../lib/desktopDiagnose";
 import { clearChatStorage, loadChat, saveChat } from "../lib/mascotMemory";
+
+/** v3.9.23：候选条目的类型直接取小脑的，加新 op（如 confirmDone）不用两处同步改 */
+type BrainChoice = NonNullable<BrainReply["choices"]>[number];
 import {
   clearLearnLog,
   exportLearnLog,
@@ -183,9 +188,7 @@ export default function MascotAssistant({
   const [learnList, setLearnList] = useState<Array<{ text: string; count: number }>>(() => loadLearnLog().length > 0 ? summarizeLearnLog() : []);
   const [, setUploadTick] = useState(0);
   /** v3.9 多候选待选：本地列了候选等用户选，记住它们（防"用户回名字却漏给AI"） */
-  const [pendingChoices, setPendingChoices] = useState<
-    Array<{ id: string; title: string; op: "delete" | "complete" | "uncomplete" | "update" }> | null
-  >(null);
+  const [pendingChoices, setPendingChoices] = useState<BrainChoice[] | null>(null);
   /** v3.9 兜底待记：桌宠问"要不要记成待办"，记住原文 */
   const [pendingQuick, setPendingQuick] = useState<string | null>(null);
   /** v3.9 用户拖拽调整后的面板尺寸（null = 用默认） */
@@ -418,6 +421,7 @@ export default function MascotAssistant({
     const opOf = (t: BrainAction["type"]): "query" | "create" | "update" | "delete" | null => {
       switch (t) {
         case "addTask":
+        case "addTasks":
         case "addMemo":
           return "create";
         case "completeTask":
@@ -449,6 +453,22 @@ export default function MascotAssistant({
           repeat: p.repeat,
         };
         onAddTask(draft);
+        triggerAct("done");
+        break;
+      }
+      case "addTasks": {
+        // v3.9.23 一句话多件事：逐条走**和单条完全相同**的通道（能力闸门已在上面的 opOf 拦过）
+        for (const it of action.items) {
+          onAddTask({
+            title: it.title,
+            notes: "",
+            priority: 3,
+            dueDate: it.dueDate,
+            dueTime: it.dueTime,
+            remindAt: it.remindAt,
+            repeat: null,
+          });
+        }
         triggerAct("done");
         break;
       }
@@ -594,6 +614,22 @@ export default function MascotAssistant({
           onToggleTask(target);
           triggerAct("done");
           pushBot(hit.op === "complete" ? `好，完成「${target.title}」✅` : `好，把「${target.title}」标回未完成。`);
+        } else if (hit.op === "confirmDone") {
+          /**
+           * v3.9.23 🔴 「周报还没写完」的兜底确认。
+           *
+           * 用户汇报进度、库里没有那条任务时，小脑会问"你是说「XX」吗"。
+           * 那条回复必须带个能真执行的动作 —— 否则用户回"是"就落进普通对话，
+           * 又要重演一遍"没找到"。这里按 done 的真假决定是标完成还是标回未完成。
+           */
+          if (isBlocked("update", ability)) {
+            pushBot("我现在是「只读陪聊」模式，不能改～右上角 ⚙ 调成标准或全权就行。");
+            return;
+          }
+          const wantDone = hit.done !== false;
+          if (target.completed !== wantDone) onToggleTask(target);
+          triggerAct("done");
+          pushBot(wantDone ? `好，完成「${target.title}」✅` : `好，把「${target.title}」标回未完成。`);
         } else {
           pushBot(`要把「${target.title}」改成什么？比如「改到明天下午3点」。`);
         }
@@ -1072,7 +1108,7 @@ export default function MascotAssistant({
           {pendingDelete && (
             <div className="mascot-confirm">
               <span>这个操作需要你确认：</span>
-              <button type="button" onClick={() => send("是，删掉")}>删除</button>
+              <button type="button" onClick={() => send("删吧")}>删除</button>
               <button type="button" className="secondary" onClick={() => send("不删")}>取消</button>
             </div>
           )}
@@ -1107,7 +1143,7 @@ export default function MascotAssistant({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") send();
+                if (e.key === "Enter" && !isImeComposing(e)) send();
               }}
               placeholder={`对${persona.name}说点什么…`}
               maxLength={500}

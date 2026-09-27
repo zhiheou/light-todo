@@ -138,15 +138,28 @@ export function localDataOwner(): string | null {
   }
 }
 
+/**
+ * v3.9.23：**只读**的归属判断 —— 先在 localStorage 里找，找不到再看桩值。
+ *
+ * 桌面版里 localStorage **就是权威**（两个窗口共用一份）。
+ * 「桩值」只用在 localStorage 读不到的场景（被禁用、或以后 E2EE 密钥改成不落盘的方案）。
+ */
+let ownerStub: string | null = null;
+
+export function effectiveOwner(): string | null {
+  return localDataOwner() ?? ownerStub;
+}
+
 export function localOwnedBy(username: string): boolean {
-  return localDataOwner() === username;
+  return effectiveOwner() === username;
 }
 
 export function claimLocalData(username: string): void {
+  ownerStub = username;
   try {
     localStorage.setItem(OWNER_KEY, username);
   } catch {
-    /* 隐私模式等，忽略 */
+    /* 隐私模式等，忽略：effectiveOwner() 会用桩值兜底 */
   }
 }
 
@@ -173,6 +186,11 @@ const WATCHED_KEYS = [
   "lighttodo:personal:v1",
   "lighttodo:work-memos:v1",
   "lighttodo:personal-memos:v1",
+  // v3.9.23：维度/目标也进了本机存档，另一个窗口改了同样要立刻重读
+  "lighttodo:work-dimensions:v1",
+  "lighttodo:personal-dimensions:v1",
+  "lighttodo:work-goals:v1",
+  "lighttodo:personal-goals:v1",
 ];
 
 let watching = false;
@@ -208,6 +226,29 @@ export function dataWatermark(
   const itemMax = itemsWatermark(data.workTasks, data.workMemos, data.personalTasks, data.personalMemos);
   if (itemMax > 0) return itemMax;
   return typeof data.updatedAt === "number" ? data.updatedAt : 0;
+}
+
+/**
+ * v3.9.23：刻意为空的「已删除任务墓碑」。
+ *
+ * 背景：v3.9.23 给个人空间加本机存档后，删除立刻从磁盘消失、水位抬不动，
+ * 于是「本机有更新的数据就留住本机」那个判据会**判成"本机不比服务器新"**，
+ * 把刚从服务器拉下来的旧列表铺回来 —— **删掉的任务会复活**。
+ *
+ * 现在每次删除都往磁盘写一条墓碑（含删除时刻），水位自然被抬高；
+ * 这个时间戳同时用来把更早的服务器数据挡在外面。
+ * 墓碑里**不存任务内容**（隐私安全），只在用户主动清空已完成时跟任务一起清掉。
+ */
+export const TOMBSTONE_MARKER = "__deleted";
+
+export interface Tombstone {
+  id: string;
+  updatedAt: number;
+  [TOMBSTONE_MARKER]: true;
+}
+
+export function makeTombstone(id: string, at: number): Tombstone {
+  return { id, updatedAt: at, [TOMBSTONE_MARKER]: true };
 }
 
 /** 一组条目里最新的 `updatedAt`（没有条目返回 0） */

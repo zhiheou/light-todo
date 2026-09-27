@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
+import { isImeComposing } from "../lib/ime";
 
 interface AuthFormProps {
   onLogin: (username: string, password: string) => Promise<void>;
@@ -79,7 +80,7 @@ export default function AuthForm({ onLogin, onRegister }: AuthFormProps) {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void submit();
+            if (event.key === "Enter" && !isImeComposing(event)) void submit();
           }}
           placeholder={mode === "register" ? "至少 6 位" : "密码"}
         />

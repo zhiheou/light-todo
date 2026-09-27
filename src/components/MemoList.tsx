@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowRightToLine, NotebookPen, Pencil, Pin, Trash2, Link2 } from "lucide-react";
+import { isImeComposing } from "../lib/ime";
 import type { Memo } from "../types";
 
 /** 从文本里抽出 `#标签`（无空格标签），如"买牛奶 #生活" → text=买牛奶, tags=[生活] */
@@ -82,7 +83,7 @@ export default function MemoList({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !isImeComposing(e)) {
                 e.preventDefault();
                 submitQuick();
               }

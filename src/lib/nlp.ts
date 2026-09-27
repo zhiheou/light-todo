@@ -17,6 +17,9 @@ const WEEKDAYS: Record<string, number> = {
   天: 0,
 };
 
+/** 阿拉伯数字 0-7 → 中文星期字（归一化时用；0 和 7 都是周日） */
+const WEEKDAYS_CN: Record<number, string> = { 0: "日", 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日" };
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -63,6 +66,16 @@ function startOfNextWeek(now: Date): Date {
   const offset = (now.getDay() + 6) % 7;
   monday.setDate(monday.getDate() - offset + 7);
   return monday;
+}
+
+/** 加 N 天（保持 0 点） */
+function plusDays(now: Date, n: number): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
+}
+
+/** 本月最后一天 */
+function endOfMonth(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth() + 1, 0);
 }
 
 // 优先级关键词：避免单字"中/低"误伤（"中国""低风险"）。保留 placeholder 提示的"高"。
@@ -131,6 +144,17 @@ const STRIP_RULES: RegExp[] = [
   // 标题留残渣"每个月 交房租"且循环识别不到）
   /每\s*个?\s*月\s*\d{1,2}\s*[日号]/g,
   /每\s*(?:一|两|二|三|\d+)?\s*(?:周|星期)(?!\s*[一二三四五六日天])/g,
+  /**
+   * v3.9.23 🔴 补"隔周 / N周后 / 下周 / 下下周 / 月最后一天"的剥离。
+   *
+   * 真 bug：这些词在解析里**没有分支接住**（见下面 weeksLater 等处新加的规则），
+   * 而剥离位也缺 —— 结果「下周交房租」标题里留着"下周"、「两周后交房租」留着"两周后"，
+   * 日期却全是"未设日期"：既没清干净、也没算出来，两头落空。
+   */
+  /每?\s*隔\s*一?\s*(?:周|星期)(?!\s*[一二三四五六日天])/g,
+  /[\d一二两三四五六七八九十]+\s*个?\s*(?:周|星期)(?:后|之后|以后)/g,
+  /(?:下下|下|这|本)\s*个?\s*(?:周|星期)(?!\s*[一二三四五六日天])/g,
+  /(?:下|本|这)?\s*个?\s*月\s*(?:的)?\s*最后\s*一?\s*天/g,
   /(?:下|本|这)个?月|月初|周末|尽快|尽早|抓紧/g,
   /今天|明天|后天|大后天/g,
   /(?:下班|中午|傍晚|晚饭|今天|明天|后天)?(?:前|之前|以前)/g,
@@ -187,6 +211,54 @@ function cnToNum(s: string): number | null {
   return null;
 }
 
+/**
+ * 中文「数字 + 点」的钟点归一。
+ *
+ * v3.9.23 🔴 修两个方向相反的真 bug（用户实测）：
+ *
+ * ① 「明天两点见」被算成**凌晨 02:00**。（下面 parseTime 有条明确的设计决定：
+ *    不做"裸小时默认下午"的推断。但中文里「一点」「两点」天生自带下午 ——
+ *    说"明天两点见"的人约的是下午两点，不是凌晨两点。）
+ * ② 「买一点水果」被算成 **13:00**、标题还被啃成「买 水果」。
+ *    （旧规则把任何紧邻"点"的中文数字都转成阿拉伯数字，「一点」→「1点」。）
+ *
+ * 「一」「两」在中文里本来就一身两职：「一点水果」是"一点点"、「两个」是数量，
+ * 而「一点开会」「两点见」是钟点。判据用**语境**而不是量词表（词表永远列不全）：
+ *   · 「点」后面紧跟分钟（半/一刻/三刻/N分）→ 一定是钟点
+ *   · 「点」**前面** 8 个字内有日期词（明天/周五/3号…）或时段词（下午/中午…）→ 钟点
+ *   · 前面是夜晚/早段词（凌晨/早上/上午/晚上/夜里…）→ 按字面走：1 点、2 点
+ *   · 都不满足 → **原样保留**，不转数字、不识别成时间 ——
+ *     于是标题完整留住「买一点水果」，也不会凭空多出一个凌晨提醒。
+ *     保守一点没坏处：说"一点开会"的人多半会带上"下午"或某个日期。
+ * · 其余（三点…十点）无歧义，照旧无条件转阿拉伯数字。
+ */
+const CLOCK_DATE_BEFORE =
+  /(今天|明天|后天|大后天|周[一二三四五六日天\d]|星期[一二三四五六日天]|礼拜[一二三四五六日天]|周末|下周|这周|本周末|\d{1,2}[月/]\d{1,2}|\d{1,2}[日号]|下个月|月底|月末)/;
+const CLOCK_PART_BEFORE = /(上午|下午|中午|傍晚|晚上|夜里|半夜|凌晨|早上|早晨|清晨|一大早|今晚)/;
+const CLOCK_NIGHT = /(凌晨|早上|早晨|上午|清晨|一大早|晚上|夜里|半夜|深夜|今晚)/;
+function normalizeClockHours(text: string): string {
+  return text.replace(
+    /([一二两三四五六七八九十]{1,3})(\s*)(点)/g,
+    (whole: string, cn: string, sp: string, _dian: string, off: number, full: string) => {
+      if (cn !== "一" && cn !== "两") {
+        const n = cnToNum(cn);
+        return n === null ? whole : `${n}${sp}点`;
+      }
+      const before = full.slice(Math.max(0, off - 8), off);
+      const after = full.slice(off + whole.length);
+      const bare = cn === "一" ? "1" : "2";
+      // 「凌晨一点」= 01:00、「晚上十一点」已是 23 点 —— 夜晚/早段词在场就按字面小时走
+      if (CLOCK_NIGHT.test(before) || CLOCK_NIGHT.test(after)) return `${bare}${sp}点`;
+      const isClock =
+        /^\s*(半|一刻|三刻|整|\d{1,2}\s*分)/.test(after) ||
+        CLOCK_PART_BEFORE.test(before) ||
+        CLOCK_DATE_BEFORE.test(before);
+      if (!isClock) return whole; // 买一点水果 / 一点小事 / 有一点点累 → 原样不动
+      return `${cn === "一" ? "13" : "14"}${sp}点`;
+    },
+  );
+}
+
 /** 口语时间词归一 + 中文数字时间转阿拉伯（"明早"→"明天早上"、"八点"→"8点"、"十号"→"10号"） */
 function normalizeCnTime(text: string): string {
   let t = text;
@@ -200,8 +272,17 @@ function normalizeCnTime(text: string): string {
     .replace(/今儿个?/g, "今天")
     .replace(/今晚/g, "今天晚上")
     .replace(/半晌|晌午/g, "中午");
-  // 中文数字 + 时间单位（仅当紧邻 点/号/日 时转换，避免"一点小事"误伤）
-  t = t.replace(/([一二两三四五六七八九十]{1,3})(?=\s*(?:点|号|日))/g, (m) => {
+  // ⚠️ 钟点归一必须**先于**下面那条"中文数字 + 点/号/日"的转换，
+  //    否则"一点"会先被转成"1点"，就再也认不出它其实是下午一点了。
+  t = normalizeClockHours(t);
+  /**
+   * ⚠️ v3.9.23：这里的 lookahead 从 `(?:点|号|日)` 收窄成 `(?:号|日)`。
+   *
+   * 「点」整类已经交给上面的 normalizeClockHours 处理（它才有语境判断能力）。
+   * 若这里还留着"点"，「买一点水果」的"一"会被这条规则重新转成"1"，
+   * 上面那番判断等于白做 —— 真 bug 就是这么绕过修复的。
+   */
+  t = t.replace(/([一二两三四五六七八九十]{1,3})(?=\s*(?:号|日))/g, (m) => {
     const n = cnToNum(m);
     return n === null ? m : String(n);
   });
@@ -225,6 +306,25 @@ function normalizeCnTime(text: string): string {
   t = t.replace(/星期\s*(\d)/g, (_m, d) => {
     const map: Record<string, string> = { "1": "一", "2": "二", "3": "三", "4": "四", "5": "五", "6": "六", "7": "日", "0": "日" };
     return `星期${map[d] ?? d}`;
+  });
+  /**
+   * v3.9.23 🔴 "礼拜" = "星期"（真 bug：「下礼拜五交材料」日期整个丢失）。
+   *
+   * 旧词表只认"周/星期"，而"下礼拜五 / 礼拜天 / 这礼拜三"是极常见的口语，
+   * 一个字都不认 → 标题留着"礼拜五"、日期为空。
+   * 归一成"星期"后，下面所有"星期X"的解析/剥离规则自动生效，不用到处补。
+   * 顺序：**先**做"礼拜几→星期几"的归一，再做"礼拜天→星期天"，
+   * 这样"礼拜天"不会先被换成"星期天"而绕开归一（其实两者等价，但保持一致更稳）。
+   */
+  t = t.replace(/礼拜\s*([一二三四五六日天1-7])/g, (_m, d) => `星期${d}`);
+  t = t.replace(/礼拜(?!\s*[一二三四五六日天1-7])/g, "星期");
+  // ⚠️ 顺序：阿拉伯数字（周5）先转，再转中文数字（下周五），
+  //    否则"下周五"先被转成"下星期五"、下面那条就匹配不上了。
+  t = t.replace(/(下下|下|这|本)\s*(周|星期)\s*([一二两三四五六七八九十]?)/g, (_m, which, unit, d) => {
+    // 已经是纯中文星期字（下周五）→ 交给下面"星期\s*(\d)"的反向规则，这里不重复转
+    if (!d || /[一二三四五六日天]/.test(d)) return `${which}${unit}${d}`;
+    const n = cnToNum(d);
+    return n === null ? `${which}${unit}${d}` : `${which}${unit}${WEEKDAYS_CN[n] ?? d}`;
   });
   return t;
 }
@@ -333,15 +433,59 @@ export function parseQuickAdd(input: ParseInput): QuickAddParse {
     // 已由循环规则处理，避免重复覆盖
   }
 
-  // 「周末」= 最近的周六；「下个月(同一天)」= 下月同日；「尽快/尽早」= 今天
+  /**
+   * v3.9.23 🔴 整周相对表达 —— 原来**一条都没有**（真 bug，用户实测一整类丢日期）。
+   *
+   * 实测：「下周交房租」「两周后交房租」「两星期后」「下下周开会」「隔周开会」
+   * 标题里都留着这些词、日期却全是"未设日期"：
+   * 剥离位留了（见 STRIP_RULES）但解析没接住 —— 样式清了、数据全丢，
+   * 保存同步到云端后永远不知道是哪天。
+   *
+   * 语义约定（跟"下周五"保持一致，都落在**周一**）：
+   *   ·「下周」      = 下周一
+   *   ·「下下周」    = 下下周一
+   *   ·「N周后 / N星期后 / 隔周 / 隔N周」= 今天 + 7N 天
+   *   ·「周末」= 最近的周六（已有规则，不重复）
+   * ⚠️ 必须放在下面"（下|本|这）周X"那条**之前**，因为"下下周"里也含"下周"。
+   */
+  if (!dueDate) {
+    const nextNextWeek = /下\s*下\s*(?:个)?\s*(?:周|星期)(?!\s*[一二三四五六日天])/.test(merged);
+    if (nextNextWeek) {
+      const d = startOfNextWeek(now);
+      d.setDate(d.getDate() + 7);
+      dueDate = toDateString(d);
+    } else {
+      const weeksLater = merged.match(
+        /(?:隔\s*([\d一二两三四五六七八九十]+)?\s*(?:周|星期))|([\d一二两三四五六七八九十]+)\s*个?\s*(?:周|星期)(?:后|之后|以后)|([\d一二两三四五六七八九十]+)\s*个?\s*(?:周|星期)(?!\s*[一二三四五六日天后之以])/,
+      );
+      if (weeksLater) {
+        const rawN = weeksLater[3] ?? weeksLater[2] ?? weeksLater[1] ?? "";
+        const n = rawN ? (/^\d+$/.test(rawN) ? Number(rawN) : cnToNum(rawN) ?? 1) : 1;
+        if (n >= 1 && n <= 52) dueDate = toDateString(plusDays(now, n * 7));
+      }
+    }
+  }
+  // 「下周」不带星期几（"下周交房租" = 下周一交）—— 上面那条"星期X"规则接不住它
+  if (!dueDate && /(下|这|本)\s*个?\s*(?:周|星期)(?!\s*[一二三四五六日天\d])/.test(merged)) {
+    const which = merged.match(/(下下|下|这|本)\s*个?\s*(?:周|星期)/)?.[1];
+    const d = which === "下" ? startOfNextWeek(now) : startOfDay(now);
+    dueDate = toDateString(d);
+  }
+
+  // 周末= 最近的周六；「下个月(同一天)」= 下月同日；「尽快/尽早」= 今天
   if (/周末/.test(merged) && !dueDate) {
     dueDate = toDateString(nextWeekday(6, now)); // 周六
   }
   if (/(下|本|这)个月/.test(merged) && !dueDate) {
-    // "下个月5号" → 下月5号（而非本月）
-    const dm = merged.match(/([\d]{1,2})[日号]/);
-    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, dm ? Number(dm[1]) : now.getDate());
-    dueDate = toDateString(nextMonth);
+    // ① v3.9.23 🔴 先接住"这个月最后一天/月底"（真 bug：被当成下月同日 = 10-27）
+    if (/月\s*(?:的)?\s*最后\s*一?\s*天/.test(merged)) {
+      dueDate = toDateString(endOfMonth(now));
+    } else {
+      // ② "下个月5号" → 下月5号（而非本月）
+      const dm = merged.match(/([\d]{1,2})[日号]/);
+      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, dm ? Number(dm[1]) : now.getDate());
+      dueDate = toDateString(nextMonth);
+    }
   }
   if (/月初/.test(merged) && !dueDate) {
     dueDate = toDateString(new Date(now.getFullYear(), now.getMonth() + 1, 1)); // 下月1号

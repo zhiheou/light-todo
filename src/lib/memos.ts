@@ -60,13 +60,14 @@ export function seedMemos(mode: Mode): Memo[] {
 }
 
 /**
- * 读取本机工作备忘。
+ * 读取本机某空间的备忘。
  * ⚠️ v3.9.2：不再自动 seed（同 loadTasks）——挂载时写入会污染登录后的账号数据。
  */
-export function loadWorkMemos(): Memo[] {
+export function loadMemos(mode: Mode): Memo[] {
+  const key = mode === "work" ? WORK_KEY : PERSONAL_KEY;
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(WORK_KEY);
+    raw = localStorage.getItem(key);
   } catch {
     return [];
   }
@@ -79,11 +80,36 @@ export function loadWorkMemos(): Memo[] {
   }
 }
 
+export function loadWorkMemos(): Memo[] {
+  return loadMemos("work");
+}
+
+/**
+ * v3.9.23：个人空间的备忘也要有本机副本 —— 见 savePersonalMemos 的说明。
+ */
+export function loadPersonalMemos(): Memo[] {
+  return loadMemos("personal");
+}
+
 /** 本窗口最近一次备忘写盘的内容 —— 用于"没变就别写"，防两个窗口互相写回旧值 */
 const lastWritten = new Map<Mode, string>();
 
 export function saveWorkMemos(memos: Memo[]): void {
   saveMemosByMode("work", memos);
+}
+
+/**
+ * v3.9.23 🔴 个人空间的备忘本机副本。
+ *
+ * 修的是什么：「在个人空间记完东西，1 秒内关掉页面/程序就整段丢」。
+ * 个人空间的四样数据（任务/备忘/维度/目标）此前**只存在内存 + 云端**：
+ * 关页比 800ms 的同步防抖快一步，或者当时断网，就永久消失（本机一个副本都没有）。
+ * 工作空间有 `saveTasks`/`saveWorkMemos` 兜底，个人空间什么都没有 —— 两边的数据安全等级不一样。
+ *
+ * 现在个人空间与工作空间同构：本机先落盘，云端同步照旧（磁盘是兜底，不是替代）。
+ */
+export function savePersonalMemos(memos: Memo[]): void {
+  saveMemosByMode("personal", memos);
 }
 
 /**
@@ -101,8 +127,15 @@ function saveMemosByMode(mode: Mode, memos: Memo[]): void {
   if (authTransitionActive()) return;
   lastWritten.set(mode, json);
   if (prev === json) return;
+  // v3.9.23：内容真变了才抬水位 —— 跟 tasks.ts 的 bumpIfChanged 一个道理。
+  // （这里不需要再比一次磁盘：lastWritten 已经是"本窗口上次写下去的内容"，
+  //   它跟这次不一样就说明是本窗口自己改的，抬水位是对的。）
   bumpLocalRevision();
-  localStorage.setItem(key, json);
+  try {
+    localStorage.setItem(key, json);
+  } catch {
+    /* 存储写满/被禁用：忽略，别让界面崩 */
+  }
 }
 
 /**

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Mode, Task, Memo } from "../types";
-import { loadTasks, saveTasks } from "../lib/tasks";
+import { loadTasks, loadTasksNoTombstoneBurn, noteTaskDeleted, saveTasks } from "../lib/tasks";
 import { loadWorkMemos, saveWorkMemos } from "../lib/memos";
 import { claimLocalData } from "../lib/syncLock";
 import { getStoredSession } from "../lib/session";
-import MascotAssistant from "./MascotAssistant";
+import { computeDueReminders, loadNotified, saveNotified } from "../lib/reminder";
+import MascotAssistant, { type MascotNudge } from "./MascotAssistant";
 import { answer, type BrainCtx } from "../lib/mascotBrain";
 import {
   hasStoredSession,
@@ -65,6 +66,97 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
     claimLocalData(stored.username);
   }, [tasks]);
 
+  /**
+   * v3.9.23 🔴 桌宠窗口自己负责到点提醒。
+   *
+   * 用户原话：「留桌宠，让桌宠提醒」—— 他只开着桌宠，主窗口是关着的。
+   * 而提醒原来**只写在主窗口 App 里**（每 10 秒扫一次），桌宠窗口一行都没有：
+   * 主窗口不在 = 提醒永远不响，不管待办上的时间设得多准。
+   *
+   * 弹两处，缺一不可：
+   *   ① 桌宠嘴边的小气泡 —— 主窗口不在时，这是用户唯一看得见的东西
+   *   ② 聊天里的一条消息 —— 错过了还能翻回去看（面板关着会记成未读小红点）
+   *
+   * 主窗口如果也开着，两边可能各弹一次 —— 靠同一份 `lighttodo:notified:v1:<空间>`
+   * 去重：谁先弹谁登记。storage 事件有几百毫秒延迟，极端情况下会重复弹一次，
+   * 但**不会漏**（宁可重复，不可漏掉）。
+   */
+  const notified = useRef<Set<string>>(new Set());
+  const modeRef = useRef<Mode>(mode as Mode);
+  modeRef.current = mode as Mode;
+  const [nudges, setNudges] = useState<MascotNudge[]>([]);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  /**
+   * v3.9.23：提醒气泡要**挨着桌宠**弹，不能丢在屏幕角落 ——
+   * 桌宠窗口是全屏透明的，右下角一个小黑条跟桌宠离着老远，用户根本不会往那儿看。
+   * 位置从 MascotAssistant 每次移动后上报的同一个键读（它自己也是从那儿恢复的）。
+   */
+  const [bubbleAt, setBubbleAt] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem("lighttodo:pet-pos:v1");
+        if (!raw) return;
+        const p = JSON.parse(raw) as { x?: number; y?: number; w?: number; h?: number };
+        if (typeof p.x !== "number" || typeof p.y !== "number") return;
+        setBubbleAt({ x: p.x + (p.w ?? 0) + 12, y: p.y + (p.h ?? 0) / 2 - 16 });
+      } catch {
+        /* 没有位置记录就用兜底位置（CSS 里的右下角） */
+      }
+    };
+    read();
+    const timer = window.setInterval(read, 1000); // 桌宠会动，气泡跟着走
+    return () => window.clearInterval(timer);
+  }, []);
+  /**
+   * v3.9.23：删除授权跟主窗口用**同一份**本机记录（键名见 App.tsx 的 grantDeleteToAssistant）。
+   * 两个窗口各存各的会出现"这边说授权过了、那边还问你要授权"。
+   */
+  const grantKey = `lighttodo:pet-delete-grant:v1.${mode}`;
+  const [deleteGranted, setDeleteGranted] = useState(() => localStorage.getItem(grantKey) === "1");
+  const grantDelete = () => {
+    try {
+      localStorage.setItem(grantKey, "1");
+    } catch {
+      /* 隐私模式等，忽略 */
+    }
+    setDeleteGranted(true);
+  };
+  useEffect(() => {
+    // 主窗口那边授权了，这里也要跟着放开（storage 事件跨窗口可用）
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== grantKey) return;
+      setDeleteGranted(localStorage.getItem(grantKey) === "1");
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [grantKey]);
+  useEffect(() => {
+    notified.current = loadNotified(modeRef.current);
+    const timer = window.setInterval(() => {
+      const current = modeRef.current;
+      // 每次都从磁盘现读：这样"刚在别处改了时间/勾了完成"立刻就生效
+      const list = loadTasksNoTombstoneBurn(current);
+      const due = computeDueReminders(list, notified.current, new Date());
+      if (due.length === 0) return;
+      for (const task of due) {
+        const text = `⏰ 到点啦：${task.title}`;
+        setToast({ id: Date.now() + Math.random(), text });
+        setNudges((prev) => [...prev.slice(-4), { id: Date.now() + Math.random(), text }]);
+        notified.current.add(task.id);
+      }
+      saveNotified(current, notified.current);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  /** 到点提醒的气泡：看一眼就够，8 秒自己走 */
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [toast]);
+
   // v3.9 与主窗口同步：主窗口改了数据（同源 localStorage）→ 本窗口跟着更新
   //
   // v3.9.22：**反方向也通了**。本窗口写盘时，浏览器自动给主窗口发 storage 事件，
@@ -73,8 +165,18 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
   // （同窗口自己写的不触发，所以不存在自激循环。）
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "lighttodo:work:v1" || e.key === "lighttodo:personal:v1") {
-        setTasks(loadTasks(mode as Mode));
+      /**
+       * v3.9.23 🔴 必须是"读了不烧墓碑"的那个。
+       *
+       * `loadTasks` 会清掉内存里的墓碑（原来只有"新建空间"会用它，无所谓）；
+       * 现在墓碑是**跨窗口防复活**的唯一凭据 —— 桌宠删掉一条 → 主窗口收到事件、
+       * 把这个删除写进自己的内存墓碑 → 30 秒后拉取时挡掉服务器那份旧的。
+       * 这里若用 `loadTasks`，事件一到墓碑就被烧了，拉取又把删掉的铺回来。
+       */
+      if (e.key === "lighttodo:work:v1") {
+        setTasks(loadTasksNoTombstoneBurn(mode as Mode));
+      } else if (e.key === "lighttodo:personal:v1") {
+        if (mode === "personal") setTasks(loadTasksNoTombstoneBurn("personal"));
       } else if (e.key === "lighttodo:work-memos:v1") {
         setMemos(loadWorkMemos());
       }
@@ -154,13 +256,58 @@ export default function DesktopPetApp({ mode = "work" }: { mode?: Mode }) {
         }}
         onAddMemo={(text) => setMemos((prev) => [{ id: crypto.randomUUID(), text, pinned: false, createdAt: Date.now(), updatedAt: Date.now() }, ...prev])}
         onOpenTask={() => void 0}
-        onDeleteTask={(t) => setTasks((prev) => prev.filter((x) => x.id !== t.id))}
-        onToggleTask={(t) => setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, completed: !x.completed } : x)))}
-        onUpdateTask={(t, patch) => setTasks((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)))}
-        deleteGranted
-        onGrantDelete={() => void 0}
-        nudges={[]}
+        onDeleteTask={(t) => {
+          // v3.9.23：删除要立墓碑 + 抬水位 —— 只把人从数组里拿掉的话，
+          // 列表内容反而"变少了"，水位抬不动，主窗口下一次拉取就会把它复活。
+          noteTaskDeleted(mode as Mode, t.id);
+          setTasks((prev) => prev.filter((x) => x.id !== t.id));
+        }}
+        onToggleTask={(t) => {
+          const at = Date.now();
+          setTasks((prev) =>
+            prev.map((x) => {
+              if (x.id !== t.id) return x;
+              const wasDone = x.completed;
+              return {
+                ...x,
+                completed: !wasDone,
+                // 少了这两个字段，主窗口 30 秒后的拉取会当成"没改过"整条盖回旧值
+                completedAt: !wasDone ? at : undefined,
+                updatedAt: at,
+              };
+            }),
+          );
+        }}
+        onUpdateTask={(t, patch) => {
+          const at = Date.now();
+          setTasks((prev) =>
+            prev.map((x) => (x.id === t.id ? { ...x, ...patch, updatedAt: at } : x)),
+          );
+        }}
+        /**
+         * v3.9.23 🔴 这两个不能写死。
+         *
+         * 写死 `deleteGranted` + 空实现，等于让桌宠窗口**永远处于"已授权"状态**：
+         * 用户在桌宠里说「删掉买牛奶」→ 它不回"首次要授权"那句 → 直接进确认 →
+         * 用户回「删」→ 真的删了，**而授权从来没被记下来**。
+         * 更糟的是主窗口的授权状态是从 localStorage 读的（还是"未授权"），
+         * 用户在主窗口再删一次，又会被要求授权一遍 —— 两边行为对不上，像失灵。
+         * 现在两个窗口读写同一份本机授权，行为一致。
+         */
+        deleteGranted={deleteGranted}
+        onGrantDelete={grantDelete}
+        nudges={nudges}
       />
+      {/* 到点提醒的气泡：跟着桌宠走，看一眼就够 */}
+      {toast && (
+        <div
+          className="pet-remind-bubble"
+          role="status"
+          style={bubbleAt ? { left: bubbleAt.x, top: bubbleAt.y } : undefined}
+        >
+          {toast.text}
+        </div>
+      )}
       {/* 让桌宠能回答"今天有什么"（复用同一套大脑） */}
       <span hidden>{answer("你好", ctx).text}</span>
       <span hidden>{memos.length}</span>

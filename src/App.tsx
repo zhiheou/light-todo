@@ -34,25 +34,31 @@ import {
   isOverdue,
   loadTasks,
   loadTasksIfChanged,
+  mergeLocalIntoRemote,
   makeTask,
   nextTaskInstance,
   normalizeTasks,
+  noteTaskDeleted,
+  clearTombstones,
   saveTasks,
   seedTasks,
   sortTasks,
+  tombstoneWatermark,
   toggleCompleted,
+  undoTaskDeleted,
 } from "./lib/tasks";
 import {
   loadMemosIfChanged,
+  loadPersonalMemos,
   loadWorkMemos,
   makeMemo,
   normalizeMemos,
+  savePersonalMemos,
   saveWorkMemos,
   seedMemos,
 } from "./lib/memos";
 import {
   beginAuthTransition,
-  bumpLocalRevision,
   claimLocalData,
   dataWatermark,
   endAuthTransition,
@@ -64,8 +70,17 @@ import {
   snapshotWatermark,
   subscribeExternalWrite,
 } from "./lib/syncLock";
-import { loadWorkDimensions, saveWorkDimensions } from "./lib/dimensionsLocal";
-import { loadWorkGoals, saveWorkGoals } from "./lib/goalsLocal";
+import {
+  loadPersonalDimensions,
+  loadWorkDimensions,
+  savePersonalDimensions,
+  saveWorkDimensions,
+} from "./lib/dimensionsLocal";import {
+  loadPersonalGoals,
+  loadWorkGoals,
+  savePersonalGoals,
+  saveWorkGoals,
+} from "./lib/goalsLocal";
 import { makeDimension, normalizeDimensions } from "./lib/dimensions";
 import { makeGoal, normalizeGoals } from "./lib/goals";
 import { applyTheme, loadThemePrefs, saveThemePrefs } from "./lib/theme";
@@ -96,7 +111,7 @@ import {
   saveStoredSession,
   wasSessionRevalidated,
 } from "./lib/session";
-import { reportLoginState } from "./lib/desktopBridge";
+import { reportLoginState, isDesktopApp } from "./lib/desktopBridge";
 
 interface ToastState {
   id: number;
@@ -136,6 +151,29 @@ function localWatermark(): number {
  */
 function watermarkBeforeReset(): number {
   return snapshotWatermark(loadTasks("work"), loadWorkMemos());
+}
+
+/**
+ * v3.9.23：个人空间的**本机存档**只在网页版读。
+ *
+ * 桌面版主窗口不读、也不写个人空间 —— 那份存档归桌宠窗所有。
+ * 两边同时持有的话，主窗口每 30 秒的拉取会把桌宠刚记的个人待办覆盖回旧值
+ * （就是「说了记下了、待办里却没有」的复发路径）。
+ * 网页版没有桌宠窗，本机那份就是唯一副本，必须读回来，否则一刷新就没了。
+ */
+function initialPersonalFromDisk(): {
+  tasks: Task[];
+  memos: Memo[];
+  dimensions: Dimension[];
+  goals: Goal[];
+} {
+  if (isDesktopApp()) return { tasks: [], memos: [], dimensions: [], goals: [] };
+  return {
+    tasks: loadTasks("personal"),
+    memos: loadPersonalMemos(),
+    dimensions: loadPersonalDimensions(),
+    goals: loadPersonalGoals(),
+  };
 }
 
 function dateKey(d: Date): string {
@@ -186,10 +224,21 @@ export default function App() {
   const [workMemos, setWorkMemos] = useState<Memo[]>(() => loadWorkMemos());
   const [workDimensions, setWorkDimensions] = useState<Dimension[]>(() => loadWorkDimensions());
   const [workGoals, setWorkGoals] = useState<Goal[]>(() => loadWorkGoals());
-  const [personalTasks, setPersonalTasks] = useState<Task[]>([]);
-  const [personalMemos, setPersonalMemos] = useState<Memo[]>([]);
-  const [personalDimensions, setPersonalDimensions] = useState<Dimension[]>([]);
-  const [personalGoals, setPersonalGoals] = useState<Goal[]>([]);
+  /**
+   * v3.9.23：个人空间也要从本机读（原来四个都是 `useState([])`）。
+   *
+   * 后果：只要不登录（断网、还没进主窗口、先开桌宠），个人空间就是空的 ——
+   * 而空 state 会顺着自动同步把**服务器上那份真的覆盖成空**，且再也读不回来。
+   *
+   * ⚠️ **桌面版不读**：那份本机存档归桌宠窗所有，主窗口读了就会跟它抢，
+   * 变成"主窗口 30 秒一次的拉取把桌宠刚记的个人待办覆盖回旧值"。
+   * 主窗口里个人空间一律以服务器为准；桌宠窗改了会通过 storage 事件推过来。
+   */
+  const initialPersonal = initialPersonalFromDisk();
+  const [personalTasks, setPersonalTasks] = useState<Task[]>(initialPersonal.tasks);
+  const [personalMemos, setPersonalMemos] = useState<Memo[]>(() => initialPersonal.memos);
+  const [personalDimensions, setPersonalDimensions] = useState<Dimension[]>(() => initialPersonal.dimensions);
+  const [personalGoals, setPersonalGoals] = useState<Goal[]>(() => initialPersonal.goals);
   const [themePrefs, setThemePrefs] = useState<ThemePrefs>(() => loadThemePrefs());
   const [pinState, setPinState] = useState<"idle" | "setup" | "enter">("idle");
   const [pinError, setPinError] = useState("");
@@ -262,6 +311,15 @@ export default function App() {
       if (t) setWorkTasks(t);
       const m = loadMemosIfChanged("work");
       if (m) setWorkMemos(m);
+      /**
+       * v3.9.23：个人空间也读。主窗口**不写**个人空间的本机存档（那份归桌宠窗），
+       * 但必须能**读到**桌宠写下的 —— 否则"另一个窗口改了"这条通知来了也没反应。
+       * 用"读了不烧墓碑"的那个：墓碑要留着挡掉 30 秒后拉取带回来的删除项。
+       */
+      const pt = loadTasksIfChanged("personal");
+      if (pt) setPersonalTasks(pt);
+      const pm = loadMemosIfChanged("personal");
+      if (pm) setPersonalMemos(pm);
     };
     const off = subscribeExternalWrite(readBoth);
     // 兜底：storage 事件在极少数情况下会丢，窗口重新可见时对一次账
@@ -275,10 +333,6 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => saveTasks("work", workTasks), [workTasks]);
-  useEffect(() => saveWorkMemos(workMemos), [workMemos]);
-  useEffect(() => saveWorkDimensions(workDimensions), [workDimensions]);
-  useEffect(() => saveWorkGoals(workGoals), [workGoals]);
   useEffect(() => {
     applyTheme(themePrefs);
     saveThemePrefs(themePrefs);
@@ -288,6 +342,60 @@ export default function App() {
   const currentMemos = mode === "work" ? workMemos : personalMemos;
   const currentDimensions = mode === "work" ? workDimensions : personalDimensions;
   const currentGoals = mode === "work" ? workGoals : personalGoals;
+
+  const currentTasksPersist = useRef(false);
+  const personalMemosPersist = useRef(false);
+  useEffect(() => {
+    // 桌宠窗（?desktop=pet）只是薄壳，数据都从 localStorage 读，
+    // 本进程内存里那份**永远是初始化时的旧快照**（它不订阅同步），
+    // 一旦写盘就是"把几分钟前的旧列表铺回去"，把主窗口刚改的覆盖掉。
+    if (petHiddenByQuery) return;
+    /**
+     * v3.9.23 🔴 个人空间在**桌面版**不写本机 —— 本机那份归桌宠窗所有。
+     *
+     * 判据是「谁最权威」：个人空间以服务器为准（一台没进过个人空间的设备不能把它清空），
+     * 而主窗口每次拉取都会把服务器那份整铺进 state，紧接着这个 effect 就写盘 ——
+     * 两边同时开着的话，主窗口 30 秒一次的拉取会把**桌宠刚记的个人待办**覆盖回旧值
+     * （正是「说了记下了、待办里却没有」的复发路径）。
+     *
+     * 网页版没有桌宠窗，本机那份就是唯一副本，必须写。
+     */
+    if (mode === "personal" && isDesktopApp()) return;
+    if (!currentTasksPersist.current) {
+      currentTasksPersist.current = true;
+      return;
+    }
+    saveTasks(mode, currentTasks);
+  }, [currentTasks, mode, petHiddenByQuery]);
+  useEffect(() => {
+    // 首帧跳过：初始化是从磁盘读出来的，把它原样写回去不是"用户改的"
+    if (!personalMemosPersist.current) {
+      personalMemosPersist.current = true;
+      return;
+    }
+    // 同上面的任务：桌面版个人空间归桌宠窗，主窗口不写
+    if (isDesktopApp()) return;
+    savePersonalMemos(personalMemos);
+  }, [personalMemos]);
+  useEffect(() => {
+    saveWorkMemos(workMemos);
+  }, [workMemos]);
+  useEffect(() => {
+    // 同备忘：桌面版个人空间的本机存档归桌宠窗所有
+    if (isDesktopApp()) return;
+    savePersonalDimensions(personalDimensions);
+  }, [personalDimensions]);
+  useEffect(() => {
+    saveWorkDimensions(workDimensions);
+  }, [workDimensions]);
+  useEffect(() => {
+    if (isDesktopApp()) return;
+    savePersonalGoals(personalGoals);
+  }, [personalGoals]);
+  useEffect(() => {
+    saveWorkGoals(workGoals);
+  }, [workGoals]);
+
   const currentTasksRef = useRef(currentTasks);
   useEffect(() => {
     currentTasksRef.current = currentTasks;
@@ -314,7 +422,8 @@ export default function App() {
 
   const addTask = useCallback(
     (task: Task) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
+      // v3.9.23：不再需要手动登记水位 —— 持久化 effect 里那次**真改动**的写盘会登记。
+      // （以前的 bump 是"写盘即登记"，注释却写着"不改写 data" —— 现在只有一处记水位，不容易漏）
       if (mode === "work") setWorkTasks((prev) => [task, ...prev]);
       else setPersonalTasks((prev) => [task, ...prev]);
     },
@@ -323,7 +432,6 @@ export default function App() {
 
   const updateTask = useCallback(
     (id: string, patch: Partial<Task>) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Task[]) =>
         prev.map((task) =>
           task.id === id ? { ...task, ...patch, updatedAt: Date.now() } : task,
@@ -336,7 +444,6 @@ export default function App() {
 
   const toggleTask = useCallback(
     (id: string) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const now = new Date();
       // 未完成→完成 的循环任务必然生成下一实例，可提前确定以弹出提示
       const target = currentTasksRef.current.find((task) => task.id === id);
@@ -360,27 +467,34 @@ export default function App() {
     [mode, showToast],
   );
 
-  const deleteTask = useCallback(
-    (task: Task) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
-      const targetMode = mode;
-      if (targetMode === "work") {
-        setWorkTasks((prev) => prev.filter((t) => t.id !== task.id));
-      } else {
-        setPersonalTasks((prev) => prev.filter((t) => t.id !== task.id));
-      }
-      if (selectedId === task.id) setSelectedId(null);
-      showToast("任务已删除", "info", "撤销", () => {
-        if (targetMode === "work") setWorkTasks((prev) => [task, ...prev]);
-        else setPersonalTasks((prev) => [task, ...prev]);
-      });
-    },
-    [mode, selectedId, showToast],
-  );
+  const deleteTask = useCallback((task: Task) => {
+    const targetMode = mode;
+    /**
+     * v3.9.23 🔴 删除要留**墓碑**。
+     *
+     * 删掉之后这条任务就没了，水位（各条 updatedAt 的最大值）抬不动 ——
+     * 于是"本机比服务器新"判不出来，30 秒后的拉取会把服务器上的旧列表整份铺回来，
+     * **刚删的任务复活**。墓碑记下"这个 id 在此刻被删"，既抬高了水位，
+     * 也把"删除时刻之前"的服务器数据挡在外面（见 lib/tasks.ts 的 noteTaskDeleted）。
+     */
+    const at = Date.now();
+    noteTaskDeleted(targetMode, task.id, at);
+    if (targetMode === "work") {
+      setWorkTasks((prev) => prev.filter((t) => t.id !== task.id));
+    } else {
+      setPersonalTasks((prev) => prev.filter((t) => t.id !== task.id));
+    }
+    if (selectedId === task.id) setSelectedId(null);
+    showToast("任务已删除", "info", "撤销", () => {
+      // 撤销 = 当作"从没删过"，墓碑一并撤掉（否则那条会被墓碑永久挡住）
+      undoTaskDeleted(targetMode, task.id, at);
+      if (targetMode === "work") setWorkTasks((prev) => [task, ...prev]);
+      else setPersonalTasks((prev) => [task, ...prev]);
+    });
+  }, [mode, selectedId, showToast]);
 
   const updateMemo = useCallback(
     (id: string, patch: Partial<Memo>) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Memo[]) =>
         prev.map((memo) =>
           memo.id === id ? { ...memo, ...patch, updatedAt: Date.now() } : memo,
@@ -393,7 +507,6 @@ export default function App() {
 
   const toggleMemoPin = useCallback(
     (id: string) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Memo[]) =>
         prev.map((memo) =>
           memo.id === id ? { ...memo, pinned: !memo.pinned, updatedAt: Date.now() } : memo,
@@ -406,7 +519,6 @@ export default function App() {
 
   const deleteMemo = useCallback(
     (memo: Memo) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const targetMode = mode;
       // 记录引用该备忘的任务 id，撤销时恢复引用（避免撤销后关联丢失）
       const referencingIds = new Set<string>();
@@ -538,13 +650,13 @@ export default function App() {
         return;
       }
       /**
-       * v3.9.14 🔴 补上"本地编辑时间"打点（独立审查发现的数据丢失 bug）。
+       * v3.9.23：本函数**不再**手动登记水位。
        *
-       * 这是**唯一**漏打的写操作（addTask/updateTask/deleteMemo 等都打了）。
-       * 不打点的后果：刚写完备忘马上刷新页面 → 云端拉取时"防覆盖闸门"认不出本地更新 →
-       * **用云端旧数据把它抹掉**，用户刚记的东西直接消失。
+       * 以前这里要手打一个 `bumpLocalRevision()`（v3.9.14 补的，因为漏打会丢数据）。
+       * 那种"每个写操作各自记得打点"的做法本身就是漏 —— 一共漏过两次。
+       * 现在改成：**持久化 effect 里那次真改动的写盘统一登记水位**（见 lib/tasks.ts 的 saveTasks）。
+       * 一处登记、谁也漏不掉。
        */
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const memo = makeMemo({ text: raw, ...(tags && tags.length > 0 ? { tags } : {}) });
       if (mode === "work") setWorkMemos((prev) => [memo, ...prev]);
       else setPersonalMemos((prev) => [memo, ...prev]);
@@ -561,7 +673,6 @@ export default function App() {
   // v3.9 收件箱：把一条备忘"转为待办"——用 NLP 解析它文本里的时间/循环，转成任务并移出备忘。
   const handleConvertMemoToTask = useCallback(
     (memo: Memo) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const p = parseQuickAdd({ title: memo.text, notes: "", now: new Date() });
       const title = p.title && p.title !== "未命名任务" ? p.title : memo.text.trim() || "未命名任务";
       const task = makeTask({
@@ -748,7 +859,6 @@ export default function App() {
   /** 更新维度（按空间） */
   const updateDimension = useCallback(
     (id: string, patch: Partial<Dimension>) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const apply = (prev: Dimension[]) =>
         prev.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim));
       if (mode === "work") setWorkDimensions(apply);
@@ -759,7 +869,6 @@ export default function App() {
 
   const addDimension = useCallback(
     (name: string) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const dim = makeDimension({
         name: name.trim() || "新维度",
         sortOrder: currentDimensions.reduce((max, d) => Math.max(max, d.sortOrder), 0) + 1,
@@ -772,7 +881,6 @@ export default function App() {
 
   const deleteDimension = useCallback(
     (id: string) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const clearRef = (prev: Task[]) =>
         prev.map((task) => (task.dimensionId === id ? { ...task, dimensionId: undefined } : task));
       if (mode === "work") {
@@ -788,7 +896,6 @@ export default function App() {
 
   const addGoal = useCallback(
     (partial: Partial<Goal>) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const goal = makeGoal(partial);
       if (mode === "work") setWorkGoals((prev) => [...prev, goal]);
       else setPersonalGoals((prev) => [...prev, goal]);
@@ -799,7 +906,6 @@ export default function App() {
 
   const deleteGoal = useCallback(
     (id: string) => {
-      bumpLocalRevision(); // v3.9.22：让别的窗口/服务器旧数据不许盖掉这次改动
       const clearRef = (prev: Task[]) =>
         prev.map((task) => (task.goalId === id ? { ...task, goalId: undefined } : task));
       if (mode === "work") {
@@ -902,10 +1008,26 @@ export default function App() {
         // ⚠️ 这个分支**同时也是"认领"条件**：本机数据比服务器新，才认为这台机器是"本账号在用"。
         // 不能无条件认领 —— 换台新电脑登录时本机是空的，认领了会把服务器数据永远挡在外面。
         if (localOwnedBy(username) && localMark > dataWatermark(data)) {
-          setWorkTasks(loadTasks("work"));
+          /**
+           * v3.9.23 🔴 个人空间的取舍和别处**正好相反**：本机更新时也要**以服务器为准**。
+           *
+           * 为什么：个人空间是"一部设备不进个人空间，就不能把云端那份清空"的地方。
+           * 而主窗口拉取时会把云端那份整铺进 state —— 如果本机也存一份个人空间，
+           * 主窗口每 30 秒一次的拉取就会把桌宠刚记的个人待办覆盖回旧值
+           * （就是「说了记下了、待办里却没有」的复发路径）。
+           * 所以个人空间一律用服务器那份，桌宠窗写下的改动由它自己那份推送。
+           *
+           * 工作空间反过来：本机的（含桌宠窗刚记的）必须留住 —— 那是这条分支存在的理由。
+           */
+          const keepTasks = mergeLocalIntoRemote("work", loadTasks("work"), normalizeTasks(data.workTasks || []));
+          setWorkTasks(keepTasks);
           setWorkMemos(loadWorkMemos());
           setWorkDimensions(loadWorkDimensions());
           setWorkGoals(loadWorkGoals());
+          setPersonalTasks(normalizeTasks(data.personalTasks || []));
+          setPersonalMemos(normalizeMemos(data.personalMemos || []));
+          setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
+          setPersonalGoals(normalizeGoals(data.personalGoals || []));
           claimLocalData(username);
         } else {
           applyAppData(data);
@@ -986,8 +1108,14 @@ export default function App() {
         // 否则这一下"用服务器数据铺首屏"就会把它抹掉。
         const localMark = waterBeforeReset;
         if (localOwnedBy(stored.username) && localMark > dataWatermark(data)) {
-          setWorkTasks(loadTasks("work"));
+          // v3.9.23：本机新加/改过的并进服务器那份（直接铺本机会丢掉另一台设备的新数据，
+          // 还会让本机刚删掉的从服务器那份里复活）。个人空间同 handleLogin：一律以服务器为准。
+          setWorkTasks(mergeLocalIntoRemote("work", loadTasks("work"), normalizeTasks(data.workTasks || [])));
           setWorkMemos(loadWorkMemos());
+          setPersonalTasks(normalizeTasks(data.personalTasks || []));
+          setPersonalMemos(normalizeMemos(data.personalMemos || []));
+          setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
+          setPersonalGoals(normalizeGoals(data.personalGoals || []));
         } else {
           applyAppData(data);
         }
@@ -1188,7 +1316,28 @@ export default function App() {
         if (localMark > lastPullStarted.current) return;
         // 服务端数据比本地更旧：本地改得更新，丢弃拉取结果
         if (dataWatermark(data) < localMark) return;
-        setWorkTasks(normalizeTasks(data.workTasks || []));
+        /**
+         * v3.9.23 🔴 本机刚删掉的任务，不能被这份服务器数据带回来。
+         *
+         * 删除不给任务抬水位（那条人已经没了），所以「水位谁高听谁的」这条判据
+         * 在"只删不加"的场景下判不出胜负 —— 30 秒后这一拉，删掉的原地复活。
+         * （个人空间以前是纯内存态还看不出来，现在它也有本机存档了。）
+         *
+         * ⚠️ 这只是**兜底**：正常情况下删除会立刻抬水位（见 tasks.ts 的 noteTaskDeleted），
+         * 上面那行 `dataWatermark(data) < localMark` 就把它挡住了。
+         * 走到这里的多半是"墓碑进得去、服务器那份还没更新"的窄窗口。
+         */
+        const remoteWork = normalizeTasks(data.workTasks || []);
+        setWorkTasks((prev) =>
+          prev.length === 0 ? remoteWork : mergeLocalIntoRemote("work", prev, remoteWork),
+        );
+        /**
+         * v3.9.23：墓碑可以回收了 —— 服务器这份数据比所有墓碑都新，
+         * 说明那几次删除已经安全地进了服务器，再留着只会挡住以后合法的旧数据。
+         */
+        if (remoteWork.length > 0 && dataWatermark(data) > tombstoneWatermark("work")) {
+          clearTombstones("work");
+        }
         setWorkMemos(normalizeMemos(data.workMemos || []));
         setPersonalTasks(normalizeTasks(data.personalTasks || []));
         setPersonalMemos(normalizeMemos(data.personalMemos || []));

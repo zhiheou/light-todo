@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
+import { isImeComposing } from "../lib/ime";
 
 interface PinGateProps {
   kind: "setup" | "enter";
@@ -17,7 +18,7 @@ export default function PinGate({ kind, error, onCancel, onSubmit }: PinGateProp
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
-      if (event.key === "Enter" && valid) onSubmit(pin);
+      if (event.key === "Enter" && !isImeComposing(event) && valid) onSubmit(pin);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
