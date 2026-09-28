@@ -36,10 +36,10 @@
           if (!raw) return;
           var t = JSON.parse(raw);
           var accents = {
-            purple: { coral: "#8B91E8", soft: "#E7E8FB", ink: "#6D74D6" },
-            graphite: { coral: "#52525B", soft: "#EEEEF0", ink: "#3F3F46" },
-            mistBlue: { coral: "#6B8CAE", soft: "#E8EEF4", ink: "#567596" },
-            sageGreen: { coral: "#7A9E8E", soft: "#EAF0EC", ink: "#5F8575" }
+            purple: { coral: "#8B91E8", soft: "#E7E8FB", ink: "#575D91", on: "#232759", hover: "#8085D5" },
+            graphite: { coral: "#52525B", soft: "#EEEEF0", ink: "#3F3F46", on: "#FFFFFF", hover: "#4B4B54" },
+            mistBlue: { coral: "#6B8CAE", soft: "#E8EEF4", ink: "#4E667E", on: "#0F2233", hover: "#6281A0" },
+            sageGreen: { coral: "#7A9E8E", soft: "#EAF0EC", ink: "#526A61", on: "#12271C", hover: "#709183" }
           };
           var fonts = {
             kai: "'LXGW WenKai','LXGW WenKai TC','LXGW WenKai Screen','PingFang SC','Microsoft YaHei',sans-serif",
@@ -56,6 +56,9 @@
           r.style.setProperty("--accent", a.coral);
           r.style.setProperty("--primary", a.coral);
           r.style.setProperty("--accent-soft", a.soft);
+          r.style.setProperty("--accent-ink", a.ink);
+          r.style.setProperty("--accent-hover", a.hover);
+          r.style.setProperty("--on-accent", a.on);
           r.style.setProperty("--font-app", fonts[t.font] || fonts.kai);
           r.style.setProperty("--app-font-scale", sizes[t.fontSize] || "1");
           r.dataset.cardStyle = ["classic", "plain", "colorful"].indexOf(t.cardStyle) >= 0 ? t.cardStyle : "classic";

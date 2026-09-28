@@ -7,7 +7,7 @@
   --border: #d8dfe6;
   --text: #1a2430;
   --text-2: #5d6b7a;
-  --text-3: #94a3b3;
+  --text-3: #6b7a8a;
   --muted: #5d6b7a;
   --primary: #8b91e8;
   --accent: #8b91e8;
@@ -15,12 +15,20 @@
   --teal: #0f766e;
   --teal-soft: #e6f4f2;
   --danger: #dc2626;
-  --ok: #16a34a;
+  --ok: #15803d;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.08);
   /* ---- v3.3 主题变量（AppearancePanel 切换）---- */
   --coral: #8b91e8;
   --coral-soft: #e7e8fb;
-  --coral-ink: #6d74d6;
+  --coral-ink: #575d91;
+  /* v3.9.25：强调色底上的文字色 / 悬停加深色 / 强调色深字。
+     这里的值只是"没跑 JS 时"的兜底，真实值由 lib/theme.ts 按当前主题写进来。
+     ⚠️ --on-accent 原来是 #fff —— 白字写在 #8b91e8 上对比度只有 2.87，发灰看不清。改深色后 4.86。
+     ⚠️ --accent-ink 原来**根本没定义**：当文字用时靠 var(x, 兜底) 混过去，
+        当**背景**用时（热力图最深层）没有兜底 → 解析成透明 → 直接看不见。 */
+  --on-accent: #232759;
+  --accent-hover: #8085d5;
+  --accent-ink: #575d91;
   --font-app: "LXGW WenKai", "LXGW WenKai TC", "LXGW WenKai Screen", "PingFang SC", "Microsoft YaHei", sans-serif;
   --app-font-scale: 1;
 }
@@ -54,6 +62,26 @@ button {
   background: none;
   cursor: pointer;
   color: inherit;
+}
+
+/**
+ * v3.9.25 补：全局键盘焦点圈。
+ *
+ * 之前只有 `.stat-cell` 一处写了 focus-visible，其余一律 `outline: none` / 默认外观，
+ * 结果就是——**用键盘 Tab 走一遍页面，完全看不出当前焦点在哪一格**。
+ * 这对鼠标用户无感，对只能用键盘的人是"这个网站没法用"。
+ *
+ * 只在 `:focus-visible`（键盘操作）时出现，鼠标点击不会冒出难看的蓝框。
+ * 用 `:where()` 把优先级压到 0，**不会覆盖任何组件自己写的焦点样式**。
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 鼠标点出来的焦点不画圈（老浏览器不认 focus-visible 时会退化成这个，也不难看） */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+  outline: none;
 }
 
 .app-shell {
@@ -102,7 +130,7 @@ button {
 }
 
 .brand svg {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .mode-dot {
@@ -118,8 +146,8 @@ button {
 }
 
 .mode-dot:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
 }
 
 .mode-dot.personal {
@@ -184,7 +212,7 @@ button {
 
 .nav-item.active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .nav-item .count {
@@ -235,8 +263,8 @@ button {
 }
 
 .account-button:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
 }
 
 .lock-button {
@@ -369,7 +397,7 @@ button {
 
 .view-options .segmented button.active {
   background: var(--surface);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .search-box {
@@ -402,12 +430,12 @@ button {
   place-items: center;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   flex: none;
 }
 
 .add-button:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .quick-add {
@@ -421,7 +449,7 @@ button {
 }
 
 .quick-add svg {
-  color: var(--accent);
+  color: var(--accent-ink);
   flex: none;
 }
 
@@ -440,12 +468,12 @@ button {
   padding: 0 12px;
   border-radius: 6px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
 .quick-add button:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .list-pane {
@@ -537,7 +565,7 @@ button {
 }
 
 .review-head svg {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .review-head h2 {
@@ -598,7 +626,7 @@ button {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .suggestion-box p {
@@ -629,7 +657,7 @@ button {
 }
 
 .task-row.selected {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
@@ -774,7 +802,7 @@ button {
 
 .priority.p3 {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .priority.p4 {
@@ -844,7 +872,7 @@ button {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .memo-quickadd:focus-within {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .memo-quickadd input {
@@ -954,7 +982,7 @@ button {
   color: var(--teal);
 }
 .memo-card-ops button.pin-toggle.on {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .tag-filter {
@@ -1338,7 +1366,7 @@ button {
 
 .field input:focus,
 .field textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -1371,7 +1399,7 @@ button {
 }
 
 .priority-picker button.p3 {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .priority-picker button.p4 {
@@ -1412,7 +1440,7 @@ button {
 .nlp-hint {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .pin-state {
@@ -1429,8 +1457,8 @@ button {
 }
 
 .pin-state.active {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
   background: var(--accent-soft);
 }
 
@@ -1452,11 +1480,11 @@ button {
 
 .primary-button {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .primary-button:hover {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .danger-button {
@@ -1514,7 +1542,7 @@ button {
 }
 
 .pin-inputs input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent);
 }
 
@@ -1777,7 +1805,7 @@ button {
   }
 
   .mobile-tabbar button.active {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .tab-icon {
@@ -1795,7 +1823,7 @@ button {
     padding: 0 3px;
     border-radius: 8px;
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
     font-size: 9px;
     font-style: normal;
     line-height: 15px;
@@ -1871,7 +1899,8 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(37, 99, 235, 0.10), transparent 60%),
+    /* v3.9.25：原来第一层是写死的蓝色 rgb(37,99,235)，换别的主题时背景还是蓝的，很跳。改成跟主题走 */
+    radial-gradient(1200px 600px at 15% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
     radial-gradient(1000px 500px at 90% 110%, rgba(15, 118, 110, 0.08), transparent 60%),
     var(--bg);
 }
@@ -1903,8 +1932,9 @@ button {
   place-items: center;
   border-radius: 10px;
   background: var(--accent);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+  color: var(--on-accent);
+  /* v3.9.25 顺手修：阴影还是蓝色的 rgb(37,99,235)，跟紫色主题不搭 */
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .gate-hero-title {
@@ -1948,7 +1978,7 @@ button {
   place-items: center;
   border-radius: 50%;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .gate-features {
@@ -2067,7 +2097,7 @@ button {
   animation: gate-task-in 0.4s 0.1s ease both;
 }
 .gate-demo-check {
-  color: var(--ok, #16a34a);
+  color: var(--ok, #15803d);
   display: grid;
   place-items: center;
 }
@@ -2209,7 +2239,7 @@ button {
 }
 
 .nlp-chip svg {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .nlp-hint {
@@ -2242,8 +2272,8 @@ button {
 
 .weekday-picker button.active {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  border-color: var(--accent-ink);
+  color: var(--on-accent);
 }
 
 /* ---------- 重复徽标 ---------- */
@@ -2260,7 +2290,7 @@ button {
 }
 
 .empty-hint b {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 500;
 }
 
@@ -2281,7 +2311,7 @@ button {
 }
 
 .local-note:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
 }
 
@@ -2323,7 +2353,7 @@ button {
 }
 
 .local-note-panel b {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* ---------- v3.3 卡片风格（data-card-style）---------- */
@@ -2351,7 +2381,9 @@ html[data-card-style="colorful"] .priority.p2 {
   color: #fff;
 }
 html[data-card-style="colorful"] .priority.p4 {
-  background: var(--text-3);
+  /* v3.9.25 顺手修：原来用 --text-3 当底色配白字，只有 2.58:1（最糊的一枚角标）。
+     --muted 是同一个灰、但够深，4.98:1 —— 语义上也更对：最低优先级的角标本来就该是"灰的"。 */
+  background: var(--muted);
   color: #fff;
 }
 
@@ -2433,8 +2465,8 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .appearance-row .chip-btn.active {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
   background: var(--accent-soft);
   font-weight: 600;
 }
@@ -2472,7 +2504,7 @@ html[data-card-style="colorful"] .priority.p4 {
 
 .today-modes button.active {
   background: var(--surface);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .today-modes button:hover {
@@ -2577,8 +2609,8 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .dimension-add-toggle:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent-ink);
 }
 
 .dimension-add-form {
@@ -2599,7 +2631,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .dimension-add-form input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
@@ -2622,14 +2654,14 @@ html[data-card-style="colorful"] .priority.p4 {
   border: none;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .dimension-add-btn:hover {
-  background: var(--accent-ink);
+  background: var(--accent-hover);
 }
 
 /* 时间线模式 */
@@ -2640,7 +2672,7 @@ html[data-card-style="colorful"] .priority.p4 {
 .timeline-time {
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
   text-align: right;
   padding-right: 10px;
   border-right: 1px dashed var(--border);
@@ -2731,7 +2763,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-week-summary b {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -2753,7 +2785,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-day.today {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
@@ -2773,7 +2805,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-day.today .calendar-day-name {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -2855,7 +2887,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .goal-chip.active {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   background: var(--accent-soft);
 }
 
@@ -2873,7 +2905,7 @@ html[data-card-style="colorful"] .priority.p4 {
 .goal-chip-count {
   font-size: 12px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .goal-chip-bar {
@@ -3003,7 +3035,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-month-cell.today {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
@@ -3014,7 +3046,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-month-cell.today .calendar-month-day {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .calendar-month-tasks {
@@ -3102,6 +3134,9 @@ html[data-card-style="colorful"] .priority.p4 {
   background: var(--accent);
 }
 
+/* 🔴 v3.9.25 修：原来写 var(--accent-ink)，而这个变量以前**根本没定义**，
+   背景解析成透明 → 热力图上最深的那一档直接是个洞。
+   现在 --accent-ink 有定义了，但这里本来就该用更深的色块，保持原意。 */
 .heat-4 {
   background: var(--accent-ink);
 }
@@ -3116,7 +3151,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .calendar-year-summary b {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 16px;
 }
 
@@ -3168,7 +3203,7 @@ html[data-card-style="colorful"] .priority.p4 {
 
 .goals-form input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
@@ -3178,14 +3213,14 @@ html[data-card-style="colorful"] .priority.p4 {
   border: none;
   border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .goals-form-create:hover {
-  background: var(--accent-ink);
+  background: var(--accent-hover);
 }
 
 .goals-form-cancel {
@@ -3222,7 +3257,7 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 
 .goal-card.active {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--accent-soft) inset;
 }
 
@@ -3243,7 +3278,7 @@ html[data-card-style="colorful"] .priority.p4 {
 .goal-card-period {
   font-size: 11px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
   background: var(--accent-soft);
   padding: 1px 6px;
   border-radius: 4px;
@@ -3272,7 +3307,7 @@ html[data-card-style="colorful"] .priority.p4 {
 .goal-card-count {
   font-size: 13px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .goal-card-delete {
@@ -3395,7 +3430,7 @@ html[data-card-style="colorful"] .priority.p4 {
   border: 1px solid var(--accent);
   border-radius: 8px;
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -3403,7 +3438,7 @@ html[data-card-style="colorful"] .priority.p4 {
 
 .empty-action:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* ============ v3.5 吉祥物助理 ============ */
@@ -4139,7 +4174,7 @@ html[data-card-style="colorful"] .priority.p4 {
   border-radius: 10px;
   background: var(--accent-soft, rgba(37, 99, 235, 0.08));
   font-size: 13px;
-  color: var(--accent);
+  color: var(--accent-ink);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4165,6 +4200,37 @@ html[data-card-style="colorful"] .priority.p4 {
 }
 @media (prefers-reduced-motion: reduce) {
   .onboard-overlay, .onboard-card { animation: none; }
+}
+
+/**
+ * v3.9.25：把「减少动态效果」补全。
+ *
+ * 系统里开了这个开关的人（前庭功能敏感、容易晕动），本来是希望"别动"，
+ * 但之前只盖住了 6 处动画，**桌宠呼吸、提醒弹出、吉祥物眨眼、下载页淡入这些照样在动**。
+ * 下面这一条把它们一次收干净，按可访问性惯例统一放在样式表末尾，
+ * 用 !important 压过前面所有分散的 animation 声明。
+ *
+ * ⚠️ 只关「动」，不关「看得见」—— 元素该出现还出现，只是不再位移/缩放/呼吸。
+ * ⚠️ 桌宠的**拖动**是 JS 直接改 transform，不受这里影响，该跟手还跟手。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* 无限循环的呼吸/眨眼类，光把时长压到 0 还会卡在首帧，直接停掉更干净 */
+  .pet-avatar,
+  .dl-hero-pet,
+  .mascot-blob,
+  .mascot-eyes .mascot-eye-l,
+  .mascot-eyes .mascot-eye-r,
+  .mascot-typing span {
+    animation: none !important;
+  }
 }
 
 
@@ -4349,7 +4415,7 @@ html.desktop-pet-mode #root {
   transition: border-color 0.16s, transform 0.16s;
 }
 .gate-download-toggle:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
   transform: translateY(-1px);
 }
 
@@ -4419,7 +4485,7 @@ html.desktop-pet-mode #root {
   text-decoration: none;
 }
 .gate-download-more:hover {
-  color: var(--accent);
+  color: var(--accent-ink);
   text-decoration: underline;
 }
 
@@ -4427,7 +4493,8 @@ html.desktop-pet-mode #root {
 .dl-shell {
   min-height: 100vh;
   background:
-    radial-gradient(900px 480px at 12% -8%, rgba(37, 99, 235, 0.10), transparent 62%),
+    /* v3.9.25：同上，蓝色光晕改成跟主题走 */
+    radial-gradient(900px 480px at 12% -8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 62%),
     radial-gradient(820px 420px at 92% 108%, rgba(15, 118, 110, 0.09), transparent 62%),
     var(--bg);
   padding-bottom: 56px;
@@ -4454,7 +4521,7 @@ html.desktop-pet-mode #root {
   cursor: pointer;
 }
 .dl-back:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-ink);
 }
 
 .dl-brand {
@@ -4472,7 +4539,7 @@ html.desktop-pet-mode #root {
   place-items: center;
   border-radius: 9px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .dl-main {
@@ -4541,8 +4608,8 @@ html.desktop-pet-mode #root {
   box-shadow: var(--shadow);
 }
 .dl-card-current {
-  border-color: var(--accent);
-  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.14);
+  border-color: var(--accent-ink);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .dl-badge {
@@ -4555,7 +4622,7 @@ html.desktop-pet-mode #root {
   padding: 3px 9px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   font-weight: 700;
 }
@@ -4596,7 +4663,7 @@ html.desktop-pet-mode #root {
   border-radius: 10px;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
   font-weight: 700;
   font-family: inherit;
@@ -4704,7 +4771,7 @@ html.desktop-pet-mode #root {
   border: none;
   background: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-size: 13px;
   font-family: inherit;
   font-weight: 600;

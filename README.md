@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
   <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
-  <img src="https://img.shields.io/badge/version-v3.8.1-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-v3.9.24-blue?style=flat-square" alt="Version">
 </p>
 
 ---
@@ -174,6 +174,11 @@ src-tauri/            Tauri 桌面壳（存档）
 | v3.7.1-3 | 2026-09-03 | 对话聚焦/防滥用 + 面板悬宠上方 + 尺寸随设备 + 登录页桌宠引导 |
 | v3.8 | 2026-09-03 | 桌宠陪伴升级：A 甩飞/遮挡/屏占比/闲置 Bug 修复 + B 删除授权（首次记住）+ C 情绪陪伴（先共情→询问→记 #心情）+ D 防刷（AI 8s 冷却/500 上限/清空对话/到点提醒进聊天）+ E 新用户无日期引导 + F 勾选动效 + G flomo 随手记条 |
 | v3.8.1 | 2026-09-03 | 复盘修正：桌宠卡死硬 bug（抓取取消飞行+看门狗）+ 写代码拦截加固（含 c++ 写链表，合法"后端开会"不误伤）+ 建待办标题不残留 + 问候优先 + 删除行动画 + 聊天输入框矮窗越屏修复 |
+| v3.9 | 2026-09-24 | 跨窗口数据互抹修复 + 桌面端体验（拖动/全屏可见）+ 提醒可靠性 |
+| v3.9.21 | 2026-09-27 | Mac 版发布（含 Intel / Apple 芯片**两个**安装包）+ 国内下载加速 |
+| v3.9.22 | 2026-09-27 | 修「说了记下了、待办里却没有」（桌面版双窗口数据互抹）+ Mac 安装包两芯片互相覆盖 |
+| v3.9.23 | 2026-09-27 | 聊天助手 8 条真 bug（时间/重复/完成/删除确认/离题误判…）+ 拼音打一半回车建出 `kaihui` |
+| v3.9.24 | 2026-09-28 | 个人空间访问码**跟账号走**（不再"换设备就重设一个"）+ 全站对比度体检（主按钮 2.87→4.86，47 处强调色文字改用深色）+ 全局键盘焦点圈 + 减少动效兜底 |
 
 ## 📜 开源协议
 

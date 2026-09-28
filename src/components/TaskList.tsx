@@ -87,6 +87,24 @@ export default function TaskList({
               .join(" ")}
             onClick={() => onSelect(task)}
             onDoubleClick={() => onSelect(task)}
+            /**
+             * v3.9.25 补键盘可达：整行原来是「能点、但 Tab 走不到」的 <article>，
+             * 键盘用户根本碰不到任务详情。
+             * 这里补 tabIndex + role="button" + 回车/空格，**只加不删**：
+             * 行里那几个小按钮（勾选/编辑/删除）的键盘路径本来就通，原样保留。
+             * 取 tabIndex=0 让每行都可停靠；点开详情后焦点自然转移到抽屉，不会来回跳。
+             */
+            tabIndex={0}
+            role="button"
+            aria-label={`${task.title}，打开详情`}
+            onKeyDown={(event) => {
+              // 事件会从行里的小按钮冒泡上来，别把它当成"整行被按了"
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              // 空格会被浏览器当成"向下翻页"，先拦掉
+              event.preventDefault();
+              onSelect(task);
+            }}
           >
             <button
               type="button"
