@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/React-19-61dafb?style=flat-square" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-5-3178c6?style=flat-square" alt="TypeScript">
   <img src="https://img.shields.io/badge/E2EE-AES--256--GCM-4caf50?style=flat-square" alt="E2EE">
-  <img src="https://img.shields.io/badge/version-v3.9.24-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/version-v3.9.25-blue?style=flat-square" alt="Version">
 </p>
 
 ---
@@ -149,13 +149,20 @@ wrangler deploy
 src/                  React 前端（TypeScript）
   components/         界面组件（TodayView 多形态 / CalendarView / GoalsView / AppearancePanel / MobileTabBar / Mascot…）
   lib/                账号、加密、访问码、Markdown、自然语言解析、维度/目标/主题、吉祥物小脑
+shared/               ★ 跨端共享的纯数据（brandSpec.mjs = 品牌图标的唯一真源）
+scripts/              网页侧构建脚本（make-icon.mjs 像素渲染 / make-brand-assets.mjs 出 favicon）
 worker/               Cloudflare Worker 后端（/api/* + D1）
   src/                Worker 逻辑
   migrations/         D1 数据库迁移
   wrangler.toml       部署配置（[assets] 静态托管 dist/）
 server/               历史 Node 后端（本地开发 / 存档）
+desktop/              Electron 桌面壳（桌宠常驻 + 托盘；scripts/make-icons.mjs 出各平台图标）
 src-tauri/            Tauri 桌面壳（存档）
 ```
+
+> **改品牌图标只改一个地方**：`shared/brandSpec.mjs`（几何 + 配色，纯数据、零依赖）。
+> 改完跑 `node scripts/make-brand-assets.mjs` 和 `node desktop/scripts/make-icons.mjs` 重新出图 ——
+> 有测试盯着"改了真源但忘了重新生成"（那是**不会报错**的静默不一致）。
 
 ## 🗓️ 版本历史
 
@@ -179,6 +186,7 @@ src-tauri/            Tauri 桌面壳（存档）
 | v3.9.22 | 2026-09-27 | 修「说了记下了、待办里却没有」（桌面版双窗口数据互抹）+ Mac 安装包两芯片互相覆盖 |
 | v3.9.23 | 2026-09-27 | 聊天助手 8 条真 bug（时间/重复/完成/删除确认/离题误判…）+ 拼音打一半回车建出 `kaihui` |
 | v3.9.24 | 2026-09-28 | 个人空间访问码**跟账号走**（不再"换设备就重设一个"）+ 全站对比度体检（主按钮 2.87→4.86，47 处强调色文字改用深色）+ 全局键盘焦点圈 + 减少动效兜底 |
+| v3.9.25 | 2026-09-28 | **应用图标重做**：原来四张脸（favicon 是空图标、桌面图标是茶绿对勾、界面用图标库通用符号、托盘糊成一团），现在全部从 `shared/brandSpec.mjs` 一处算出来 —— 画吉祥物轻宜的脸，含 favicon/ICO/ICNS/托盘/Android maskable；底板压深一档让白脸过 3:1；`favicon.ico` 20KB→3.5KB |
 
 ## 📜 开源协议
 

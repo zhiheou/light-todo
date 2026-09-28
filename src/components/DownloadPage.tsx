@@ -5,11 +5,11 @@ import {
   CheckCircle2,
   Download,
   Info,
-  ListTodo,
   MonitorDown,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
+import BrandMark from "./BrandMark";
 import { BloubAvatar } from "./BloubAvatar";
 import { DOWNLOADS, DOWNLOAD_READY, pickMacDownload } from "../lib/downloads";
 
@@ -150,9 +150,8 @@ export default function DownloadPage() {
           返回
         </button>
         <div className="dl-brand">
-          <span className="dl-brand-icon">
-            <ListTodo size={18} />
-          </span>
+          {/* v3.9.25：同登录页，换成吉祥物轻宜的脸 */}
+          <BrandMark size={30} variant="tile" label="轻待办" />
           轻待办 · Light Todo
         </div>
       </header>

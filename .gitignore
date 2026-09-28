@@ -44,3 +44,6 @@ desktop/build/*.blockmap
 !.dev.vars.example
 .env*
 !.env.example
+
+# 图标设计期的临时预览脚本（ASCII 渲染 + 对照图），不是产物
+.icon-preview/

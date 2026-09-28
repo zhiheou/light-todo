@@ -129,8 +129,18 @@ button {
   letter-spacing: 0;
 }
 
-.brand svg {
-  color: var(--accent-ink);
+/*
+ * v3.9.25：品牌标记换成吉祥物轻宜的脸（BrandMark 组件）。
+ * 原来这里靠 `.brand svg { color: var(--accent-ink) }` 给图标上色 ——
+ * 那招对"单色描边图标"管用，对现在的多色脸不行：
+ * 脸要跟着文字色（accent-ink），但**五官必须和脸反着来**，
+ * 否则深色五官画在深色脸上就糊成一团。五官色由组件自己给（--on-accent）。
+ * 所以现在只要给个字号级的尺寸和一点视觉微调，不再管颜色。
+ */
+.brand .brand-mark {
+  flex: none;
+  /* 脸的包围盒已经在 shared/brandSpec.mjs 里收紧过，这里只做光学对齐 */
+  margin-top: -1px;
 }
 
 .mode-dot {
@@ -1925,17 +1935,6 @@ button {
   color: var(--text);
 }
 
-.gate-brand-icon {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  /* v3.9.25 顺手修：阴影还是蓝色的 rgb(37,99,235)，跟紫色主题不搭 */
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 35%, transparent);
-}
 
 .gate-hero-title {
   margin: 6px 0 0;
@@ -4531,15 +4530,6 @@ html.desktop-pet-mode #root {
   font-size: 15px;
   font-weight: 800;
   color: var(--text);
-}
-.dl-brand-icon {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--on-accent);
 }
 
 .dl-main {

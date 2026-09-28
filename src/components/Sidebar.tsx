@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { Mode, ThemePrefs, ViewFilter } from "../types";
 import AppearancePanel from "./AppearancePanel";
+import BrandMark from "./BrandMark";
 
 interface SidebarProps {
   mode: Mode;
@@ -51,7 +52,18 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <ListTodo size={18} />
+        {/* v3.9.25：原来这里是图标库的通用「清单」符号 + .brand svg{color:--accent-ink}。
+            换成吉祥物轻宜的脸，用 face 变体（不带底板）——
+            这样它继续吃 .brand 的文字色，换主题色时 logo 跟着变。
+            五官用 --on-accent：它是"画在实底上的字"，会和脸色形成对比（颜色配比是测过的）。
+            aria-hidden + 旁边就有"轻待办"三个字，读屏念两遍反而啰嗦。 */}
+        <BrandMark
+          size={20}
+          variant="face"
+          className="brand-mark"
+          face="currentColor"
+          feature="var(--on-accent)"
+        />
         <span>轻待办</span>
         <button
           type="button"

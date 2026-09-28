@@ -4,7 +4,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Download,
-  ListTodo,
   LockKeyhole,
   MessageCircle,
   MonitorDown,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import AuthForm from "./AuthForm";
+import BrandMark from "./BrandMark";
 import { BloubAvatar } from "./BloubAvatar";
 import type { StateId } from "../lib/bloub/states";
 import { DOWNLOAD_READY } from "../lib/downloads";
@@ -98,9 +98,9 @@ export default function LoginGate({ onLogin, onRegister, booting, error }: Login
       {/* 左侧品牌 + 产品演示区 */}
       <div className="gate-hero">
         <div className="gate-brand">
-          <span className="gate-brand-icon">
-            <ListTodo size={22} />
-          </span>
+          {/* v3.9.25：原来这里是图标库的通用「清单」符号，跟产品没关系。
+              现在换成吉祥物轻宜的脸（和 favicon / 桌面图标 / 托盘同一张） */}
+          <BrandMark size={38} variant="tile" label="轻待办" />
           <span>轻待办 · Light Todo</span>
           <span className="gate-brand-tag">端到端加密</span>
         </div>

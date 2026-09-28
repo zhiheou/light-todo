@@ -4,7 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#8B91E8" />
-    <link rel="icon" href="data:," />
+    <!--
+      网站图标（v3.9.25 重做）。
+      原来这里是 `href="data:,"` —— 一个**故意的空图标**，等于告诉浏览器"我没有图标"。
+      结果：标签页是一张白纸、收藏夹里认不出来、手机加到主屏是个灰方块。
+      现在换成吉祥物轻宜的脸，和桌面快捷方式 / 系统托盘**同一张**
+      （几何定义在 shared/brandSpec.mjs，由 scripts/make-brand-assets.mjs 生成）。
+
+      为什么两个都要：
+        · favicon.svg —— 现代浏览器的首选。矢量，16px 到 512px 一个文件全覆盖。
+        · favicon.ico —— 兜底。除了老浏览器，还有一批"抓网站图标"的服务
+          （RSS 阅读器、部分聊天软件的链接预览）**不看 <link>**，
+          直接按老规矩去根目录取 /favicon.ico，没有就显示空白。
+      顺序：现代浏览器看到 svg 会优先用它，老浏览器不认识 svg 就落到 ico。
+    -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- iOS/iPadOS 加到主屏时用（苹果不加圆角，所以这张图是直角正方形） -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>轻待办</title>
     <!-- 字体：楷体（霞鹜文楷）+ Noto Sans SC；主题切换按需加载 -->
     <!--
