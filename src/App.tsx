@@ -87,9 +87,12 @@ import { applyTheme, loadThemePrefs, saveThemePrefs } from "./lib/theme";
 import { parseQuickAdd } from "./lib/nlp";
 import { computeDueReminders, loadNotified, saveNotified } from "./lib/reminder";
 import {
-  hasPersonalLock,
-  savePersonalLock,
-  verifyPersonalLock,
+  buildLock,
+  localLock,
+  localLockMatches,
+  localLockOwner,
+  verifyLockAgainst,
+  writeLocalLock,
 } from "./lib/personalLock";
 import {
   clearKeyCache,
@@ -239,6 +242,11 @@ export default function App() {
   const [personalMemos, setPersonalMemos] = useState<Memo[]>(() => initialPersonal.memos);
   const [personalDimensions, setPersonalDimensions] = useState<Dimension[]>(() => initialPersonal.dimensions);
   const [personalGoals, setPersonalGoals] = useState<Goal[]>(() => initialPersonal.goals);
+  /**
+   * v3.9.24：个人空间访问码的**权威副本**（跟着账号加密数据走）。
+   * `null` = 这个账号还没设过访问码。换设备登录同一账号时会从云端解密出来，不用重设。
+   */
+  const [personalLock, setPersonalLock] = useState<{ salt: string; hash: string } | null>(null);
   const [themePrefs, setThemePrefs] = useState<ThemePrefs>(() => loadThemePrefs());
   const [pinState, setPinState] = useState<"idle" | "setup" | "enter">("idle");
   const [pinError, setPinError] = useState("");
@@ -567,10 +575,30 @@ export default function App() {
   const requestPersonal = useCallback(async () => {
     if (mode === "personal") return;
     setPinError("");
-    // 进入个人空间一律要求本机访问码：首次先设置，之后输入
-    if (hasPersonalLock()) setPinState("enter");
-    else setPinState("setup");
-  }, [mode]);
+    if (!account) {
+      // 没登录（理论上进不到这）：退回本机那份，行为等同老版本
+      if (localLock()) setPinState("enter");
+      else setPinState("setup");
+      return;
+    }
+    // 访问码跟着账号走 —— 换设备登录同一账号时它已经在 account 数据里了
+    if (personalLock) {
+      setPinState("enter");
+      return;
+    }
+    /**
+     * v3.9.24 迁移：账号里还没有访问码，但本机存着一份旧码
+     * （升级前设的、owner 还没标注、或者刚好就是这个账号的）→ 收编进账号，**不让用户重设**。
+     */
+    const legacy = localLock();
+    if (legacy && (localLockOwner() === "" || localLockOwner() === account.username)) {
+      setPersonalLock(legacy);
+      writeLocalLock(legacy, account.username);
+      setPinState("enter");
+      return;
+    }
+    setPinState("setup");
+  }, [mode, account, personalLock]);
 
   const lockPersonal = useCallback(() => {
     if (mode !== "personal") return;
@@ -592,24 +620,39 @@ export default function App() {
 
   const handleSetupPin = useCallback(
     async (pin: string) => {
-      await savePersonalLock(pin);
+      const lock = await buildLock(pin);
+      setPersonalLock(lock);
+      // 本机也记一份并标注归属：同一台电脑换账号时不会串码
+      if (account) writeLocalLock(lock, account.username);
       // 在个人空间内设码 → 设完即锁定回工作空间；在工作空间设码 → 直接进入
       if (mode === "personal") lockPersonal();
       else enterPersonal();
     },
-    [mode, enterPersonal, lockPersonal],
+    [mode, enterPersonal, lockPersonal, account],
   );
 
   const handleEnterPin = useCallback(
     async (pin: string) => {
-      const ok = await verifyPersonalLock(pin);
+      // 优先用账号里那份；账号数据还没到位时退回本机那份（老版本行为）
+      const target = personalLock ?? (account && localLockMatches(account.username) ? localLock() : null);
+      if (!target) {
+        setPinError("访问码丢失了，请重新设置");
+        setPinState("setup");
+        return;
+      }
+      const ok = await verifyLockAgainst(pin, target);
       if (ok) {
+        // 用的是本机那份（迁移还没落盘）→ 顺手补进账号里
+        if (!personalLock) {
+          setPersonalLock(target);
+          if (account) writeLocalLock(target, account.username);
+        }
         enterPersonal();
       } else {
         setPinError("访问码不正确");
       }
     },
-    [enterPersonal],
+    [personalLock, account, enterPersonal],
   );
 
   const handleAddTask = useCallback(
@@ -826,6 +869,7 @@ export default function App() {
       workGoals,
       personalDimensions,
       personalGoals,
+      personalLock: personalLock ?? undefined,
       updatedAt: Date.now(),
     };
   }, [
@@ -837,6 +881,7 @@ export default function App() {
     workGoals,
     personalDimensions,
     personalGoals,
+    personalLock,
   ]);
 
   // 高危修复：登出/换账号必须清空全部数据 state，绝不让上一账号数据残留在内存里，
@@ -850,6 +895,7 @@ export default function App() {
     setPersonalMemos([]);
     setPersonalDimensions([]);
     setPersonalGoals([]);
+    setPersonalLock(null);
     setSelectedId(null);
     setSelectedMemoId(null);
     setActiveTag(null);
@@ -970,6 +1016,7 @@ export default function App() {
     setWorkGoals(normalizeGoals(data.workGoals || []));
     setPersonalDimensions(normalizeDimensions(data.personalDimensions || []));
     setPersonalGoals(normalizeGoals(data.personalGoals || []));
+    setPersonalLock(data.personalLock ?? null);
   }, []);
 
   const handleLogin = useCallback(
@@ -1517,8 +1564,8 @@ export default function App() {
           onSelectView={handleSelectView}
           onToggleMode={handleToggleMode}
           onLock={() => {
-            // 未设本机访问码时，先引导设置（锁定前设码才有意义）
-            if (mode === "personal" && !hasPersonalLock()) {
+            // 未设访问码时，先引导设置（锁定前设码才有意义）
+            if (mode === "personal" && !personalLock) {
               setPinState("setup");
               setPinError("");
               return;

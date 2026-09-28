@@ -274,6 +274,14 @@ export interface AppData {
   workGoals?: Goal[];
   personalDimensions?: Dimension[];
   personalGoals?: Goal[];
+  /**
+   * v3.9.24：个人空间访问码（salt + PBKDF2 摘要，**不含明文**）。
+   *
+   * 放进这里＝跟着账号加密数据走，换设备登录同一账号就自动带过去
+   * —— 治的就是「换个设备就得重设一个」。
+   * 老账号没有这个字段 → 首次进个人空间时把本机旧码迁移进来，用户不用重设。
+   */
+  personalLock?: { salt: string; hash: string };
   updatedAt: number;
 }
 

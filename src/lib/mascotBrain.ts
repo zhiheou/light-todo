@@ -748,10 +748,9 @@ function tryMultiTasks(raw: string, now: Date): BrainReply | null {
 }
 
 /** 判断是否"建待办/任务"（自然语言日期交给 parseQuickAdd） */
-function tryAddTask(raw: string): BrainReply | null {
+function tryAddTask(raw: string, now = new Date()): BrainReply | null {
   // 去掉外壳（开头/结尾），其余原样交给 NLP 提取 标题/时间/循环
   const cleaned = stripHelp(raw);
-  const now = new Date();
   const fillers = /^(呢|啊|吧|呀|哦|嘛|吗|个|一下|了|的|好|嗯)*$/;
   // 纯"帮我记个待办"（剥完没内容）→ 引导补内容，不建空任务
   if (!cleaned || fillers.test(cleaned)) {
@@ -787,7 +786,7 @@ function tryAddTask(raw: string): BrainReply | null {
       localOnly: true,
     };
   }
-  const parsed = parseQuickAdd({ title: cleaned, notes: "", now });
+    const parsed = parseQuickAdd({ title: cleaned, notes: "", now });
   // 明确"要建任务"的信号：原句有建动作词，或（解析出时间/日期 且 像待办内容）。
   // 避免"今天天气不错"这类闲聊被误当成任务（今天也会被 NLP 填成日期）。
   /** 动作词：明确的"帮我记/添加/新建"这类（用户主动要求记录） */
@@ -1185,7 +1184,12 @@ export function answer(raw: string, ctx: BrainCtx): BrainReply {
    */
   const multi = tryMultiTasks(text, ctx.now ?? new Date());
   if (multi) return multi;
-  const task = tryAddTask(text);
+  /**
+   * ⚠️ `now` 必须**传下去**，不能让它自己 `new Date()`。
+   * 不传的话单条建任务走的是真实系统时间，跟上下文里的时钟不一致 ——
+   * 测试里表现为「"明天开会"的日期翻了一天就变」，线上则是"注入时钟"这条设计被悄悄绕过。
+   */
+  const task = tryAddTask(text, ctx.now ?? new Date());
   if (task) return task;
   if (hasTaskIntent) {
     const feel2 = tryFeeling(text);
