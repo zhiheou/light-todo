@@ -36,8 +36,21 @@ pick_ip() {
   return 1
 }
 
-IP=$(pick_ip) || { echo "❌ GitHub 所有候选地址都不通，稍后再试"; exit 1; }
-echo "使用地址: $IP"
+# ⚠️ 2026-09-28：**"探测通过"不代表"推得上去"**。
+#    实测同一个地址刚探测通、紧接着 push 就 `Failed to connect`，
+#    隔几秒重试又成功 —— 这条线路是抖的。
+#    所以：每个地址**重试 2 轮**，别探测一次就梭哈。
+for round in 1 2; do
+  IP=$(pick_ip) || { echo "第 $round 轮：候选地址都不通，换下一轮"; sleep 3; continue; }
+  echo "使用地址: $IP（第 $round 轮）"
 
-timeout 300 git -c "http.curloptResolve=github.com:443:$IP" -c http.postBuffer=524288000 push origin master:main
-echo "✅ 已推 GitHub main"
+  if timeout 300 git -c "http.curloptResolve=github.com:443:$IP" -c http.postBuffer=524288000 push origin master:main; then
+    echo "✅ 已推 GitHub main"
+    exit 0
+  fi
+  echo "⚠️ 推失败，重试中……"
+  sleep 3
+done
+
+echo "❌ 两轮都没推上去，稍后再跑一次这个脚本"
+exit 1
